@@ -1,0 +1,345 @@
+:root {
+    --ai-primary: #00f7ff;
+    --ai-accent: #3b82f6;
+    --ai-deep: #020617;
+    --ai-panel: rgba(15, 23, 42, 0.75);
+    --ai-border: rgba(0, 255, 255, 0.25);
+    --ai-glow: rgba(0, 255, 255, 0.6);
+}
+
+.flagship-ambient {
+    position: fixed;
+    inset: 0;
+    z-index: -5;
+    background: radial-gradient(circle at 20% 20%, rgba(0, 247, 255, 0.15), transparent 40%), radial-gradient(circle at 80% 70%, rgba(59, 130, 246, 0.15), transparent 40%);
+    filter: blur(60px);
+    animation: ambientMove 20s infinite alternate ease-in-out;
+}
+
+@keyframes ambientMove {
+    0% {
+        transform: translateY(0px);
+    }
+    100% {
+        transform: translateY(-40px);
+    }
+}
+
+.ai-signature {
+    position: fixed;
+    bottom: 40px;
+    right: 50px;
+    font-size: 64px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    opacity: 0.04;
+    pointer-events: none;
+    color: white;
+}
+
+.ai-signature span {
+    color: var(--ai-primary);
+}
+
+.chat-window {
+    animation: fadeSwitch 0.35s ease;
+}
+
+@keyframes fadeSwitch {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.ai-message {
+    border-left: 3px solid var(--ai-primary);
+    background: linear-gradient( 90deg, rgba(0, 247, 255, 0.08), transparent);
+}
+
+
+/* ===================================================== */
+
+
+/* GLOBAL FIX FOR CENTERING */
+
+
+/* ===================================================== */
+
+html,
+body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+
+/* ===================================================== */
+
+
+/* FULL PAGE BACKGROUND */
+
+
+/* ===================================================== */
+
+.auth-container {
+    position: relative;
+    width: 100%;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    isolation: isolate;
+    background: radial-gradient(circle at top, #0f2027, #203a43, #2c5364);
+}
+
+
+/* ===================================================== */
+
+
+/* BACKGROUND LAYERS */
+
+
+/* ===================================================== */
+
+.neural-bg {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background: radial-gradient(circle at center, #0f172a, #020617);
+}
+
+.premium-bg {
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+}
+
+.gradient-mesh {
+    position: fixed;
+    inset: 0;
+    z-index: -3;
+    background: radial-gradient(circle at 30% 30%, #0ea5e9 0%, transparent 40%), radial-gradient(circle at 70% 60%, #6366f1 0%, transparent 40%), radial-gradient(circle at 50% 90%, #06b6d4 0%, transparent 40%), #020617;
+    animation: gradientShift 10s ease infinite alternate;
+}
+
+@keyframes gradientShift {
+    0% {
+        filter: hue-rotate(0deg);
+    }
+    100% {
+        filter: hue-rotate(40deg);
+    }
+}
+
+
+/* ===================================================== */
+
+
+/* GLASS CARD */
+
+
+/* ===================================================== */
+
+.auth-card {
+    position: relative;
+    z-index: 5;
+    width: 420px;
+    padding: 45px;
+    border-radius: 20px;
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
+    background: rgba(15, 23, 42, 0.75);
+    border: 1px solid rgba(0, 255, 255, 0.4);
+    box-shadow: 0 0 40px rgba(0, 255, 255, 0.3), inset 0 0 30px rgba(0, 255, 255, 0.1);
+    color: white;
+    transform-style: preserve-3d;
+    transition: transform 0.2s ease, box-shadow 0.3s ease;
+    animation: fadeUp 0.8s ease;
+}
+
+.auth-card:hover {
+    transform: perspective(1000px) rotateX(3deg) rotateY(-3deg);
+    box-shadow: 0 0 60px rgba(0, 255, 255, 0.6), inset 0 0 40px rgba(0, 255, 255, 0.2);
+}
+
+@keyframes fadeUp {
+    from {
+        transform: translateY(40px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+
+/* ===================================================== */
+
+
+/* TITLE */
+
+
+/* ===================================================== */
+
+.auth-title {
+    text-align: center;
+    font-size: 28px;
+    font-weight: bold;
+    margin-bottom: 30px;
+    color: #22d3ee;
+    animation: pulseGlow 2.5s infinite ease-in-out;
+}
+
+@keyframes pulseGlow {
+    0% {
+        text-shadow: 0 0 10px #0ff;
+    }
+    50% {
+        text-shadow: 0 0 35px #0ff;
+    }
+    100% {
+        text-shadow: 0 0 10px #0ff;
+    }
+}
+
+
+/* ===================================================== */
+
+
+/* INPUT GROUP */
+
+
+/* ===================================================== */
+
+.input-group {
+    position: relative;
+    margin-bottom: 25px;
+}
+
+.input-group input {
+    width: 100%;
+    padding: 14px 12px;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 8px;
+    outline: none;
+    color: white;
+    font-size: 14px;
+    transition: 0.3s ease;
+}
+
+.input-group label {
+    position: absolute;
+    left: 14px;
+    top: 14px;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.6);
+    transition: 0.3s ease;
+    pointer-events: none;
+}
+
+.input-group input:focus {
+    border-color: #00f7ff;
+    box-shadow: 0 0 10px #00f7ff;
+}
+
+.input-group input:focus+label,
+.input-group input:not(:placeholder-shown)+label {
+    top: -10px;
+    left: 10px;
+    font-size: 12px;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 0 5px;
+    color: #00f7ff;
+}
+
+
+/* ===================================================== */
+
+
+/* BUTTON */
+
+
+/* ===================================================== */
+
+.auth-btn {
+    width: 100%;
+    padding: 14px;
+    margin-top: 20px;
+    border-radius: 10px;
+    border: none;
+    font-weight: bold;
+    font-size: 15px;
+    background: linear-gradient(90deg, #06b6d4, #3b82f6);
+    color: black;
+    cursor: pointer;
+    transition: 0.3s ease;
+}
+
+.auth-btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 25px #06b6d4;
+}
+
+.auth-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+
+/* ===================================================== */
+
+
+/* LINK */
+
+
+/* ===================================================== */
+
+.auth-link {
+    text-align: center;
+    margin-top: 20px;
+    font-size: 13px;
+}
+
+.auth-link span {
+    color: #00f7ff;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.auth-link span:hover {
+    text-decoration: underline;
+}
+
+
+/* ===================================================== */
+
+
+/* ERROR */
+
+
+/* ===================================================== */
+
+.auth-error {
+    background: rgba(255, 0, 0, 0.15);
+    color: #ff4d4d;
+    padding: 8px;
+    border-radius: 6px;
+    margin-bottom: 15px;
+    font-size: 13px;
+    text-align: center;
+}
+
+.password-hint {
+    font-size: 12px;
+    color: #94a3b8;
+    margin-bottom: 10px;
+    display: block;
+}
