@@ -41,8 +41,29 @@ def create_feed(feed: dict, db: Session = Depends(get_db)):
     if "viewed_by" not in feed:
         feed["viewed_by"] = "[]"
 
-    db.add(AdminFeed(**feed))
+    db_feed = AdminFeed(**feed)
+    db.add(db_feed)
     db.commit()
+
+    # Trigger live WebSocket alert
+    try:
+        from services.notification_service import notification_manager
+        import asyncio
+        loop = asyncio.get_event_loop()
+        event_payload = {
+            "type": "FEED_CREATED",
+            "message": f"New feed alert: {db_feed.title or 'Notification'}",
+            "data": {
+                "title": db_feed.title,
+                "target": db_feed.target_user
+            }
+        }
+        if loop.is_running():
+            loop.create_task(notification_manager.broadcast(event_payload))
+        else:
+            loop.run_until_complete(notification_manager.broadcast(event_payload))
+    except Exception as ws_err:
+        print("Failed to broadcast feed notification:", ws_err)
 
     return {"msg": "Feed added"}
 
@@ -56,6 +77,7 @@ async def create_document_feed(
     file: UploadFile = File(...),
     title: str = Form(...),
     target_user: str = Form("ALL"),
+    created_by: str = Form(None),
     db: Session = Depends(get_db)
 ):
 
@@ -87,11 +109,32 @@ async def create_document_feed(
             title=title.strip(),
             content=final_content,
             target_user=target_clean,
+            created_by=created_by.strip().lower() if created_by else None,
             viewed_by="[]"
         )
 
         db.add(new_feed)
         db.commit()
+
+        # Trigger live WebSocket alert
+        try:
+            from services.notification_service import notification_manager
+            import asyncio
+            loop = asyncio.get_event_loop()
+            event_payload = {
+                "type": "FEED_CREATED",
+                "message": f"New Document Parsed: {new_feed.title or file.filename}",
+                "data": {
+                    "title": new_feed.title,
+                    "target": new_feed.target_user
+                }
+            }
+            if loop.is_running():
+                loop.create_task(notification_manager.broadcast(event_payload))
+            else:
+                loop.run_until_complete(notification_manager.broadcast(event_payload))
+        except Exception as ws_err:
+            print("Failed to broadcast document feed notification:", ws_err)
 
         return {"msg": "Document feed parsed and dispatched successfully"}
 
@@ -106,9 +149,19 @@ async def create_document_feed(
 # =========================================================
 
 @router.get("/feeds")
-def get_feeds(db: Session = Depends(get_db)):
+def get_feeds(username: str = None, db: Session = Depends(get_db)):
 
-    feeds = db.query(AdminFeed).order_by(
+    query = db.query(AdminFeed)
+    if username:
+        username_clean = username.strip().lower()
+        query = query.filter(
+            or_(
+                func.lower(AdminFeed.created_by) == username_clean,
+                AdminFeed.created_by == None
+            )
+        )
+
+    feeds = query.order_by(
         AdminFeed.created_at.desc()
     ).all()
 
@@ -185,9 +238,14 @@ def delete_feed(feed_id: int, db: Session = Depends(get_db)):
 # =========================================================
 
 @router.delete("/feeds/clear")
-def clear_all_feeds(db: Session = Depends(get_db)):
+def clear_all_feeds(username: str = None, db: Session = Depends(get_db)):
 
-    db.query(AdminFeed).delete()
+    query = db.query(AdminFeed)
+    if username:
+        username_clean = username.strip().lower()
+        query = query.filter(func.lower(AdminFeed.created_by) == username_clean)
+
+    query.delete(synchronize_session=False)
     db.commit()
 
     return {"status": "all feeds cleared"}
@@ -202,11 +260,22 @@ def get_all_users(db: Session = Depends(get_db)):
 
     users = db.query(User).all()
 
+    def safe_iso(dt):
+        if not dt:
+            return None
+        if isinstance(dt, str):
+            return dt
+        try:
+            return dt.isoformat()
+        except Exception:
+            return str(dt)
+
     return [
         {
             "id": u.id,
             "username": u.username,
-            "role": u.role
+            "role": u.role,
+            "created_at": safe_iso(u.created_at)
         }
         for u in users
     ]

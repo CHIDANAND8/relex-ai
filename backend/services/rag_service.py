@@ -118,7 +118,7 @@ def get_memory_context(db, conversation_id: int, branch_id=None):
 # DOCUMENT CONTEXT (MULTI FILE FIX)
 # =========================================================
 
-def get_document_context(db, question: str):
+def get_document_context(db, question: str, conversation_id: int = None):
 
     if not question or not question.strip():
         return "", []
@@ -148,9 +148,13 @@ def get_document_context(db, question: str):
         print("FAISS returned no ids")
         return "", []
 
-    docs = db.query(DocumentEmbedding).filter(
+    query = db.query(DocumentEmbedding).filter(
         DocumentEmbedding.id.in_(faiss_ids)
-    ).all()
+    )
+    if conversation_id is not None:
+        query = query.filter(DocumentEmbedding.conversation_id == conversation_id)
+
+    docs = query.all()
 
     if not docs:
         print("No documents found for FAISS ids")
@@ -203,7 +207,13 @@ def get_document_context(db, question: str):
             
         # Massive Dynamic Keyword Targeting (Perfect Alignment)
         # Instead of hardcoding document types, massively boost ANY rare significant keyword.
-        ignore_words = {"provide", "give", "show", "card", "details", "this", "image", "photo", "the", "please", "extract"}
+        ignore_words = {
+            "provide", "give", "show", "card", "details", "this", "image", "photo", "the", "please", "extract",
+            "python", "code", "program", "class", "import", "function", "http", "server", "api", "fastapi",
+            "data", "request", "return", "create", "write", "make", "build", "read", "test", "user", "admin",
+            "text", "string", "price", "name", "role", "type", "file", "list", "value", "post", "get", "explain",
+            "script", "development", "developer", "software", "engineer", "build", "run"
+        }
         for word in question_words:
             if len(word) > 3 and word not in ignore_words:
                 if word in content:
@@ -219,7 +229,7 @@ def get_document_context(db, question: str):
         # Length normalization
         score += min(len(content) / 500, 1)
 
-        scored_docs.append((score, doc.content, doc.document_title, doc.file_type))
+        scored_docs.append((score, doc.content, doc.document_title, doc.file_type, doc.filename, doc.chunk_index))
 
     if not scored_docs:
         return "", []
@@ -234,7 +244,7 @@ def get_document_context(db, question: str):
     seen_chunks = set()
     ordered_files = []
 
-    for score, text, fpath, ftype in scored_docs:
+    for score, text, fpath, ftype, fname, chunk_idx in scored_docs:
 
         key = text[:150]
 
@@ -246,7 +256,19 @@ def get_document_context(db, question: str):
                 ordered_files.append(fpath)
 
         seen_chunks.add(key)
-        unique_chunks.append(text)
+        
+        # Clean potential UUIDs from filenames for readable citations
+        display_name = fname if fname else (fpath if fpath else "Source Document")
+        if display_name and "/" in display_name:
+            display_name = display_name.split("/")[-1]
+        if display_name and "\\" in display_name:
+            display_name = display_name.split("\\")[-1]
+            
+        if display_name and len(display_name) > 37 and re.match(r"^[a-fA-F0-9\-]{36}_", display_name):
+            display_name = display_name[37:]
+            
+        citation_header = f"--- SOURCE CITATION: File: {display_name} | Chunk: {chunk_idx + 1} ---\n"
+        unique_chunks.append(citation_header + text)
 
         if len(unique_chunks) >= 10:
             break

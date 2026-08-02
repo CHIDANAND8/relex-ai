@@ -18,9 +18,7 @@ __pycache__/
 *$py.class
 *.so
 .Python
-build/
 develop-eggs/
-dist/
 downloads/
 eggs/
 .eggs/
@@ -46,3 +44,10 @@ MANIFEST
 .idea/
 .DS_Store
 Thumbs.db
+
+# Uploaded files (user content, not code)
+backend/uploads/
+
+# ML model cache (too large for git)
+backend/.cache/
+backend/models/

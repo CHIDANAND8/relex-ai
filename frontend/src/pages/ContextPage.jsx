@@ -41,17 +41,12 @@ export default function ContextPage() {
   return (
     <div className="user-page-wrapper">
 
-      <PremiumBackground />
-      <CinematicOverlay />
-
-      <div className="ai-signature">
-        RELEX<span>AI</span>
-      </div>
+      {/* Clean Background */}
 
       <div className="d-flex position-relative" style={{ zIndex: 5 }}>
 
         {/* Sidebar */}
-        <div className="bg-dark glass-sidebar" style={{ width: "280px" }}>
+        <div className="glass-sidebar" style={{ width: "280px" }}>
           <Sidebar user={user} />
         </div>
 

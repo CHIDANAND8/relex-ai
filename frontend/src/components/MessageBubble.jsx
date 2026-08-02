@@ -30,6 +30,46 @@ export default function MessageBubble({ role, text, isStreaming }) {
 
     // block code
     if (!inline && match) {
+      if (match[1] === "json") {
+        try {
+          const parsed = JSON.parse(codeString);
+          if (parsed.chartType && parsed.data && Array.isArray(parsed.data)) {
+            const maxValue = Math.max(...parsed.data.map(d => d.value || 0), 1);
+            return (
+              <div className="card text-white mb-3 shadow" style={{ background: "rgba(30, 41, 59, 1)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                <div className="card-header border-bottom border-light border-opacity-10 py-2 bg-transparent text-center fw-bold">
+                  📊 Data Visualization ({parsed.chartType.toUpperCase()})
+                </div>
+                <div className="card-body px-4 py-4">
+                  {parsed.data.map((item, idx) => (
+                    <div key={idx} className="mb-2 d-flex align-items-center">
+                      <div style={{ width: "120px", fontSize: "0.80rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} className="me-2 text-end text-light-50 fw-bold" title={item.name}>
+                        {item.name}
+                      </div>
+                      <div style={{ flex: 1, backgroundColor: "rgba(255,255,255,0.05)", borderRadius: "6px", height: "18px", position: "relative" }}>
+                        <div style={{
+                          width: `${(item.value / maxValue) * 100}%`,
+                          height: "100%",
+                          backgroundColor: "#3b82f6",
+                          backgroundImage: "linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%)",
+                          borderRadius: "4px",
+                          transition: "width 0.5s ease-in-out"
+                        }} />
+                      </div>
+                      <div className="ms-2" style={{ width: "40px", fontSize: "0.75rem", color: "#94a3b8" }}>
+                        {item.value}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          }
+        } catch (e) {
+          // ignore parsing error, just render as JSON code
+        }
+      }
+
       return (
         <div style={{ position: "relative" }}>
           <button
@@ -59,7 +99,7 @@ export default function MessageBubble({ role, text, isStreaming }) {
 
     // inline code
     return (
-      <code className="bg-light px-1 rounded">
+      <code className="bg-light px-1 rounded text-dark text-break">
         {children}
       </code>
     );
@@ -68,15 +108,27 @@ export default function MessageBubble({ role, text, isStreaming }) {
   // =========================
   // IMAGE RENDERER
   // =========================
-  const ImageBlock = (props) => {
+  const ImageBlock = ({ node, ...props }) => {
     const [expanded, setExpanded] = useState(false);
+    const [hasError, setHasError] = useState(false);
+
+    if (hasError) {
+      return (
+        <div className="alert alert-danger p-2 small mt-2 d-inline-block">
+          Failed to load image. It may be blocked by your network or ad-blocker.
+        </div>
+      );
+    }
+
     return (
       <>
         <img 
           {...props} 
           className="shadow-sm"
-          referrerPolicy="no-referrer"
-          crossOrigin="anonymous"
+          onError={() => { 
+            console.error('Image load failed:', props.src); 
+            setHasError(true);
+          }}
           style={
              (props.alt === "Generated Art") 
               ? { 
@@ -139,10 +191,10 @@ export default function MessageBubble({ role, text, isStreaming }) {
       }`}
     >
       <div
-        className={`p-3 rounded ${
+        className={`p-3 rounded message-bubble ${
           isUser
-            ? "bg-primary text-white"
-            : "bg-white shadow-sm"
+            ? "message-bubble-user text-white"
+            : "message-bubble-ai"
         }`}
         style={{ maxWidth: "75%", whiteSpace: "pre-wrap" }}
       >

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, Depends
+from fastapi import APIRouter, UploadFile, File, Depends, Form
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
@@ -207,6 +207,7 @@ def extract_text(file_path):
 @router.post("/upload")
 async def upload(
     file: UploadFile = File(...),
+    conversation_id: int = Form(None),
     db: Session = Depends(get_db)
 ):
 
@@ -241,10 +242,13 @@ async def upload(
 
     print("Chunks created:", len(chunks))
 
-    # delete previous embeddings
-    db.query(DocumentEmbedding).filter(
+    # delete previous embeddings in this conversation
+    del_query = db.query(DocumentEmbedding).filter(
         DocumentEmbedding.filename == file.filename
-    ).delete()
+    )
+    if conversation_id is not None:
+        del_query = del_query.filter(DocumentEmbedding.conversation_id == conversation_id)
+    del_query.delete()
 
     db.commit()
 
@@ -269,7 +273,8 @@ async def upload(
                     embedding=json.dumps(emb),
                     filename=file.filename,
                     file_type=ext,
-                    document_title=file_path
+                    document_title=file_path,
+                    conversation_id=conversation_id
                 )
 
                 db.add(doc)

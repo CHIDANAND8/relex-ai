@@ -25,6 +25,9 @@ class User(Base):
     # 🔔 Optional unread feeds counter
     unread_feeds = Column(Integer, default=0)
 
+    # 📅 Registration date/time
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 
 # =========================================================
 # ADMIN FEEDS
@@ -41,6 +44,9 @@ class AdminFeed(Base):
 
     # username OR "ALL"
     target_user = Column(String, index=True)
+
+    # Username of the creator admin
+    created_by = Column(String, index=True, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -104,6 +110,9 @@ class Message(Base):
     # star / bookmark
     is_starred = Column(Boolean, default=False)
 
+    # stores JSON representations of AI context (admin feeds, vectors, memory)
+    context_metadata = Column(Text, nullable=True)
+
 
 # =========================================================
 # DOCUMENT EMBEDDINGS (RAG STORAGE)
@@ -130,4 +139,36 @@ class DocumentEmbedding(Base):
     # 🔹 optional document title
     document_title = Column(String, nullable=True)
 
+    # 🔹 partition RAG context by conversation
+    conversation_id = Column(Integer, index=True, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow) 
+
+
+# =========================================================
+# PROMPT LIBRARY
+# =========================================================
+
+class PromptTemplate(Base):
+    """Stores user-defined prompt templates."""
+    __tablename__ = "prompt_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, index=True, nullable=False)
+    title = Column(String, index=True, nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# =========================================================
+# SHARED CHATS
+# =========================================================
+
+class SharedChat(Base):
+    """Stores publicly shared read-only conversation links."""
+    __tablename__ = "shared_chats"
+
+    uuid = Column(String, primary_key=True, index=True)
+    conversation_id = Column(Integer, index=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)

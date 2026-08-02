@@ -1,6 +1,5 @@
 import Sidebar from "../components/Sidebar";
-import PremiumBackground from "../components/PremiumBackground";
-import CinematicOverlay from "../components/CinematicOverlay";
+
 
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
@@ -12,6 +11,7 @@ export default function AdminDashboard() {
 const navigate = useNavigate();
 
 const [user, setUser] = useState(null);
+const [sidebarOpen, setSidebarOpen] = useState(true);
 
 const [users, setUsers] = useState([]);
 const [feeds, setFeeds] = useState([]);
@@ -68,16 +68,18 @@ loadUsers();
 // LOAD FEEDS
 // =========================
 const loadFeeds = async () => {
-
-
-try {
-  const data = await apiFetch("/admin/feeds");
-  setFeeds(Array.isArray(data) ? data : []);
-} catch (err) {
-  console.error(err);
-}
-
-
+  try {
+    const stored = localStorage.getItem("user");
+    let username = "";
+    if (stored) {
+      const u = JSON.parse(stored);
+      username = u.username;
+    }
+    const data = await apiFetch(`/admin/feeds?username=${encodeURIComponent(username)}`);
+    setFeeds(Array.isArray(data) ? data : []);
+  } catch (err) {
+    console.error(err);
+  }
 };
 
 useEffect(() => {
@@ -108,6 +110,7 @@ try {
       formData.append("file", feedFile);
       formData.append("title", title);
       formData.append("target_user", targetUser);
+      formData.append("created_by", user.username);
 
       await uploadAdminFeedDocument(formData);
   } else {
@@ -116,7 +119,8 @@ try {
         body: JSON.stringify({
           title,
           content,
-          target_user: targetUser
+          target_user: targetUser,
+          created_by: user.username
         })
       });
   }
@@ -165,7 +169,7 @@ if (!window.confirm("Clear all feeds?")) return;
 
 try {
 
-  await apiFetch("/admin/feeds/clear", {
+  await apiFetch(`/admin/feeds/clear?username=${encodeURIComponent(user.username)}`, {
     method: "DELETE"
   });
 
@@ -184,29 +188,113 @@ if (!user) return null;
 
 return ( <div className="user-page-wrapper">
 
-  <PremiumBackground />
-  <CinematicOverlay />
-
-  <div className="ai-signature">
-    RELEX<span>AI</span>
-  </div>
+  {/* Clean Background */}
 
   <div className="d-flex position-relative" style={{ zIndex: 5 }}>
 
     {/* SIDEBAR */}
-    <div className="bg-dark glass-sidebar" style={{ width: "280px" }}>
+    <div className={`glass-sidebar ${sidebarOpen ? "" : "d-none d-md-block"}`} style={{ width: "280px" }}>
       <Sidebar user={user} />
     </div>
 
     {/* DASHBOARD PANEL */}
-    <div className="flex-grow-1 p-4 glass-main">
+    <div className="flex-grow-1 d-flex flex-column vh-100 glass-main">
+      
+      <div className="border-bottom p-2 d-flex justify-content-between align-items-center glass-header">
+        <button
+          className="btn btn-sm btn-outline-light d-md-none"
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+        >
+          ☰
+        </button>
+        <button className="btn btn-danger px-4 rounded fw-bold shadow-sm" onClick={() => {
+            localStorage.removeItem("user");
+            navigate("/");
+        }}>Log Out</button>
+      </div>
 
-      <h4 className="text-warning mb-4">
-        Admin Dashboard
-      </h4>
+      <div className="flex-grow-1 overflow-auto p-4">
+        <h3 className="text-info fw-bold mb-4">Admin Control Center</h3>
 
-      {/* POST FEED */}
-      <div className="card mb-4">
+      {/* QUICK STATS */}
+      <div className="row g-4 mb-5">
+        <div className="col-md-4">
+          <div className="glass-card text-center py-4">
+            <h6 className="text-light-50 text-uppercase tracking-wider mb-2">Total Users</h6>
+            <h2 className="text-info fw-bold mb-0 display-4">{users.length}</h2>
+          </div>
+        </div>
+        <div className="col-md-4">
+          <div className="glass-card text-center py-4">
+            <h6 className="text-light-50 text-uppercase tracking-wider mb-2">Active Feeds</h6>
+            <h2 className="text-warning fw-bold mb-0 display-4">{feeds.length}</h2>
+          </div>
+        </div>
+        <div className="col-md-4">
+          <div className="glass-card text-center py-4">
+            <h6 className="text-light-50 text-uppercase tracking-wider mb-2">System Status</h6>
+            <h2 className="text-success fw-bold mb-0 display-4">Online</h2>
+          </div>
+        </div>
+      </div>
+
+      {/* REGISTERED USERS & ADMINS LIST */}
+      <div className="card glass-card mb-5">
+        <div className="card-body">
+          <h5 className="text-info fw-bold mb-3">Registered Users & Admins</h5>
+          <div className="table-responsive">
+            <table className="table table-borderless text-light align-middle mb-0" style={{ backgroundColor: 'transparent', '--bs-table-bg': 'transparent', color: '#ececec' }}>
+              <thead>
+                <tr className="border-bottom border-secondary text-light-50 fs-6">
+                  <th>Username / Email</th>
+                  <th>Role / Account Type</th>
+                  <th>Registration Date & Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((u) => {
+                  const regDate = u.created_at ? new Date(u.created_at) : new Date();
+                  const formattedDate = regDate.toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  });
+                  const formattedTime = regDate.toLocaleTimeString("en-US", {
+                    hour: "numeric",
+                    minute: "2-digit",
+                    hour12: true,
+                  });
+                  
+                  // Normalize role label
+                  const isRoleAdmin = String(u.role).toLowerCase() === "admin" || String(u.role).toLowerCase() === "administrator";
+                  const roleLabel = isRoleAdmin ? "Admin" : "User";
+                  
+                  return (
+                    <tr key={u.id} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                      <td className="fw-bold fs-6 text-white">{u.username}</td>
+                      <td>
+                        {isRoleAdmin ? (
+                          <span className="badge bg-danger text-uppercase px-2.5 py-1.5" style={{ fontSize: "0.75rem", letterSpacing: "0.5px" }}>Admin</span>
+                        ) : (
+                          <span className="badge bg-secondary text-uppercase px-2.5 py-1.5" style={{ fontSize: "0.75rem", letterSpacing: "0.5px" }}>User</span>
+                        )}
+                      </td>
+                      <td className="text-light-50">
+                        {formattedDate} at {formattedTime}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div className="row g-4">
+        {/* POST FEED */}
+        <div className="col-lg-5">
+          <div className="glass-card h-100">
 
         <div className="card-body">
 
@@ -264,8 +352,11 @@ return ( <div className="user-page-wrapper">
 
       </div>
 
-      {/* RECENT FEEDS */}
-      <div className="card">
+        </div>
+        
+        {/* RECENT FEEDS */}
+        <div className="col-lg-7">
+          <div className="glass-card h-100">
 
         <div className="card-body">
 
@@ -322,12 +413,13 @@ return ( <div className="user-page-wrapper">
 
         </div>
 
+          </div>
+        </div>
       </div>
 
+      </div>
     </div>
-
   </div>
-
 </div>
 
 );

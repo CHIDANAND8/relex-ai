@@ -1,10 +1,14 @@
-import requests
-import json
+from sentence_transformers import SentenceTransformer
+import numpy as np
 
-OLLAMA_EMBED_URL = "http://localhost:11434/api/embed"
-# We retain the old fallback for backwards compatibility if needed
-OLLAMA_OLD_EMBED_URL = "http://localhost:11434/api/embeddings"
-EMBED_MODEL = "nomic-embed-text"
+# Load small local embedding model (downloads on first run)
+# This does NOT rely on Ollama, meaning it works perfectly on Render/Vercel
+try:
+    print("Loading embedding model (all-MiniLM-L6-v2)...")
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+except Exception as e:
+    print("Failed to load SentenceTransformer:", e)
+    model = None
 
 def _prepare_text(text: str):
     if not text:
@@ -15,59 +19,28 @@ def _prepare_text(text: str):
     return text
 
 def create_embeddings_batch(texts: list):
-    """Processes hundreds of chunks instantly using Ollama's efficient batch endpoint"""
+    """Processes hundreds of chunks instantly using local sentence-transformers"""
     valid_texts = [_prepare_text(t) for t in texts if t and t.strip()]
     
-    if not valid_texts:
+    if not valid_texts or model is None:
         return []
 
     try:
-        response = requests.post(
-            OLLAMA_EMBED_URL,
-            json={
-                "model": EMBED_MODEL,
-                "input": valid_texts,
-                "keep_alive": "2h"
-            },
-            timeout=120
-        )
-
-        if response.status_code == 200:
-            data = response.json()
-            # The new /api/embed returns 'embeddings' list
-            embeddings = data.get("embeddings")
-            if embeddings:
-                return embeddings
-                
-        # Fallback to the old api/embeddings if someone runs old Ollama versions
-        # Very slow, but safe
-        print("Falling back to single embeddings (Ollama /api/embed failed)")
-        return [create_embedding(txt) for txt in valid_texts]
-
+        embeddings = model.encode(valid_texts)
+        # Convert numpy arrays to lists
+        return [emb.tolist() for emb in embeddings]
     except Exception as e:
         print("Batch embedding error:", e)
         return []
 
 def create_embedding(text: str):
-    """Legacy single text embedding wrapper"""
+    """Single text embedding wrapper"""
     text = _prepare_text(text)
-    if not text: return None
+    if not text or model is None: return None
     
     try:
-        response = requests.post(
-            OLLAMA_OLD_EMBED_URL,
-            json={
-                "model": EMBED_MODEL,
-                "prompt": text,
-                "keep_alive": "2h"
-            },
-            timeout=30
-        )
-
-        if response.status_code == 200:
-            return response.json().get("embedding")
-        return None
-
+        embedding = model.encode(text)
+        return embedding.tolist()
     except Exception as e:
         print("Embedding error:", e)
         return None

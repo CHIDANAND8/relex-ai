@@ -1,0 +1,6 @@
+Project: Hyperion AI
+Confidentiality Status: Top Secret
+Launch Date: December 15, 2026
+Lead Engineer: Dr. Samantha Reed
+Primary Function: Multi-modal autonomous learning agent.
+Key Components: Neural core, FAISS visual indexing subsystem, and Ollama reasoning engine.

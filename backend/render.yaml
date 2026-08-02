@@ -1,0 +1,25 @@
+# =========================================================
+# RELEX AI Backend — Render Deployment Config
+# =========================================================
+
+services:
+  - type: web
+    name: relex-ai-backend
+    env: python
+    region: singapore   # closest to India
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false          # set manually in Render Dashboard
+      - key: SECRET_KEY
+        generateValue: true
+      - key: KMP_DUPLICATE_LIB_OK
+        value: "TRUE"
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+    disk:
+      name: relex-data
+      mountPath: /data
+      sizeGB: 1              # Persistent disk for SQLite + uploads

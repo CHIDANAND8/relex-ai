@@ -16,6 +16,9 @@ const [user, setUser] = useState(null);
 const [conversationId, setConversationId] = useState(null);
 const [view, setView] = useState("dashboard");
 
+// AI Context State (kept for context page)
+const [, setContextData] = useState(null);
+
 const [users, setUsers] = useState([]);
 const [feeds, setFeeds] = useState([]);
 
@@ -51,7 +54,8 @@ try {
 // CLEAR CONTEXT WHEN CHAT CHANGES
 // =========================
 useEffect(() => {
-localStorage.removeItem("ai_context");
+  setContextData(null);
+  localStorage.removeItem("ai_context");
 }, [conversationId]);
 
 // =========================
@@ -79,20 +83,22 @@ loadUsers();
 // LOAD FEEDS
 // =========================
 const loadFeeds = async () => {
-
-
-try {
-  const data = await apiFetch("/admin/feeds");
-  setFeeds(Array.isArray(data) ? data : []);
-} catch (err) {
-  console.error(err);
-}
-
-
+  try {
+    const stored = localStorage.getItem("user");
+    let username = "";
+    if (stored) {
+      const u = JSON.parse(stored);
+      username = u.username;
+    }
+    const data = await apiFetch(`/admin/feeds?username=${encodeURIComponent(username)}`);
+    setFeeds(Array.isArray(data) ? data : []);
+  } catch (err) {
+    console.error(err);
+  }
 };
 
 useEffect(() => {
-loadFeeds();
+  loadFeeds();
 }, []);
 
 // =========================
@@ -113,7 +119,8 @@ try {
     body: JSON.stringify({
       title,
       content,
-      target_user: targetUser
+      target_user: targetUser,
+      created_by: user.username
     })
   });
 
@@ -156,7 +163,7 @@ if (!window.confirm("Clear all feeds?")) return;
 
 try {
 
-  await apiFetch("/admin/feeds/clear", {
+  await apiFetch(`/admin/feeds/clear?username=${encodeURIComponent(user.username)}`, {
     method: "DELETE"
   });
 
@@ -195,12 +202,12 @@ return ( <div className="admin-page-wrapper">
           activeConversationId={conversationId}
 
           onSelect={(id) => {
-
-            if (!id) return;
-
             setConversationId(id);
-            setView("chat");
-
+            if (id) {
+              setView("chat");
+            } else {
+              setView("dashboard");
+            }
           }}
 
           onOpenDashboard={() => {
@@ -248,6 +255,57 @@ return ( <div className="admin-page-wrapper">
           {view === "dashboard" && (
 
             <div className="p-4">
+
+              {/* REGISTERED USERS & ADMINS LIST */}
+              <div className="card glass-card mb-4">
+                <div className="card-body">
+                  <h5 className="text-info fw-bold mb-3 text-uppercase tracking-wider" style={{ fontSize: "0.9rem" }}>Registered Users & Admins</h5>
+                  <div className="table-responsive">
+                    <table className="table table-borderless text-light align-middle mb-0" style={{ backgroundColor: 'transparent', '--bs-table-bg': 'transparent', color: '#ececec' }}>
+                      <thead>
+                        <tr className="border-bottom border-secondary text-light-50 fs-6">
+                          <th>Username / Email</th>
+                          <th>Role / Account Type</th>
+                          <th>Registration Date & Time</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {users.map((u) => {
+                          const regDate = u.created_at ? new Date(u.created_at) : new Date();
+                          const formattedDate = regDate.toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          });
+                          const formattedTime = regDate.toLocaleTimeString("en-US", {
+                            hour: "numeric",
+                            minute: "2-digit",
+                            hour12: true,
+                          });
+                          
+                          const isRoleAdmin = String(u.role).toLowerCase() === "admin" || String(u.role).toLowerCase() === "administrator";
+                          
+                          return (
+                            <tr key={u.id} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                              <td className="fw-bold fs-6 text-white">{u.username}</td>
+                              <td>
+                                {isRoleAdmin ? (
+                                  <span className="badge bg-danger text-uppercase px-2.5 py-1.5" style={{ fontSize: "0.75rem", letterSpacing: "0.5px" }}>Admin</span>
+                                ) : (
+                                  <span className="badge bg-secondary text-uppercase px-2.5 py-1.5" style={{ fontSize: "0.75rem", letterSpacing: "0.5px" }}>User</span>
+                                )}
+                              </td>
+                              <td className="text-light-50">
+                                {formattedDate} at {formattedTime}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
 
               {/* POST FEED */}
               <div className="card glass-card mb-4">
@@ -386,6 +444,7 @@ return ( <div className="admin-page-wrapper">
               <ChatWindow
                 user={user}
                 conversationId={conversationId}
+                setContextData={setContextData}
               />
 
             </div>

@@ -89,7 +89,7 @@ export const sendMessage = async(data, signal) => {
         fetchOptions.signal = signal;
     }
 
-    const res = await fetch("http://localhost:8000/chat", fetchOptions);
+    const res = await fetch((process.env.REACT_APP_API_URL || "http://localhost:8000") + "/chat", fetchOptions);
 
     if (!res.ok) {
         const text = await res.text();
@@ -104,7 +104,7 @@ export const sendMessage = async(data, signal) => {
 ========================= */
 
 export const editMessage = async(data) => {
-    const res = await fetch("http://localhost:8000/edit", {
+    const res = await fetch((process.env.REACT_APP_API_URL || "http://localhost:8000") + "/edit", {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
@@ -142,7 +142,7 @@ export const markFeedViewed = (feedId, username) =>
     });
 
 export const uploadAdminFeedDocument = async(formData) => {
-    const res = await fetch("http://localhost:8000/admin/feed-document", {
+    const res = await fetch((process.env.REACT_APP_API_URL || "http://localhost:8000") + "/admin/feed-document", {
         method: "POST",
         body: formData,
     });
@@ -161,7 +161,7 @@ export const uploadFile = async(file) => {
     const formData = new FormData();
     formData.append("file", file);
 
-    const res = await fetch("http://localhost:8000/upload", {
+    const res = await fetch((process.env.REACT_APP_API_URL || "http://localhost:8000") + "/upload", {
         method: "POST",
         body: formData,
     });
@@ -173,3 +173,37 @@ export const uploadFile = async(file) => {
 
     return res.json();
 };
+
+/* =========================
+   AI MODELS
+========================= */
+
+export const getAvailableModels = () => apiFetch("/models");
+
+/* =========================
+   PROMPTS
+========================= */
+
+export const createPrompt = (data) =>
+    apiFetch("/prompts", {
+        method: "POST",
+        body: JSON.stringify(data),
+    });
+
+export const getPrompts = (userId) => apiFetch(`/prompts/${userId}`);
+
+export const deletePrompt = (promptId) =>
+    apiFetch(`/prompts/${promptId}`, {
+        method: "DELETE",
+    });
+
+/* =========================
+   CHAT SHARING
+========================= */
+
+export const generateShareLink = (conversationId) =>
+    apiFetch(`/share/conversation/${conversationId}`, {
+        method: "POST",
+    });
+
+export const getSharedChat = (shareUuid) => apiFetch(`/share/${shareUuid}`);
