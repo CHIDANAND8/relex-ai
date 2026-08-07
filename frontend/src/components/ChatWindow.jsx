@@ -1176,41 +1176,48 @@ if (ctxHeader) {
         />
       )}
 
-      <div
-        ref={containerRef}
-        onScroll={handleScroll}
-        className="flex-grow-1 overflow-auto p-3"
-      >
+           <div className="h-100 d-flex flex-column justify-content-end p-3 pb-0" style={{ zIndex: 10 }}>
+                {/* Empty sleek center space */}
+                <div className="flex-grow-1"></div>
 
-        {!conversationId && messages.length === 0 ? (
-           <div className="h-100 d-flex flex-column p-2 p-md-5 overflow-auto" style={{ zIndex: 10 }}>
-                <div className="mb-4 text-center text-md-start">
-                  <h1 className="text-light fw-bold fs-2 mb-2">
-                    Welcome to Relex AI
-                  </h1>
-                  <p className="text-light-50 fs-6">Hello, <span className="text-info">{user.username}</span>! What would you like to do today?</p>
-                </div>
-                
-                <div className="row g-4 mb-5">
-                  <div className="col-md-4">
-                    <div className="glass-card text-center cursor-pointer h-100 d-flex flex-column justify-content-center py-4" onClick={() => document.querySelector('.chat-input')?.focus()}>
-                      <div className="fs-1 mb-2">💬</div>
-                      <h5 className="text-info mb-2 fw-bold">New Chat</h5>
-                      <p className="text-light-50 small mb-0">Type a message below to start.</p>
+                {/* Bottom ChatGPT Layout Actions */}
+                <div className="d-flex flex-column gap-3 mb-2" style={{ maxWidth: "700px", alignSelf: "center", width: "100%" }}>
+                  <div 
+                    className="d-flex align-items-center justify-content-between p-3 rounded-4 cursor-pointer"
+                    style={{ background: "transparent", color: "#e2e8f0", transition: "background 0.2s" }}
+                    onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.05)"}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                    onClick={() => { setInput("Can you generate an image of "); document.querySelector('.chat-input')?.focus(); }}
+                  >
+                    <div className="d-flex align-items-center gap-3">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                      <span style={{ fontSize: "1rem" }}>Create an image</span>
                     </div>
                   </div>
-                  <div className="col-md-4">
-                    <div className="glass-card text-center cursor-pointer h-100 d-flex flex-column justify-content-center py-4" onClick={() => navigate('/context')}>
-                      <div className="fs-1 mb-2">🧠</div>
-                      <h5 className="text-warning mb-2 fw-bold">AI Memory</h5>
-                      <p className="text-light-50 small mb-0">View your personalized knowledge base.</p>
+
+                  <div 
+                    className="d-flex align-items-center justify-content-between p-3 rounded-4 cursor-pointer"
+                    style={{ background: "transparent", color: "#e2e8f0", transition: "background 0.2s" }}
+                    onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.05)"}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                    onClick={() => { setInput("Please help me write or edit a text about "); document.querySelector('.chat-input')?.focus(); }}
+                  >
+                    <div className="d-flex align-items-center gap-3">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                      <span style={{ fontSize: "1rem" }}>Write or edit</span>
                     </div>
                   </div>
-                  <div className="col-md-4">
-                    <div className="glass-card text-center cursor-pointer h-100 d-flex flex-column justify-content-center py-4" onClick={() => { if(onOpenProfile) onOpenProfile(); }}>
-                      <div className="fs-1 mb-2">⚙️</div>
-                      <h5 className="text-success mb-2 fw-bold">Settings</h5>
-                      <p className="text-light-50 small mb-0">Manage your profile and preferences.</p>
+
+                  <div 
+                    className="d-flex align-items-center justify-content-between p-3 rounded-4 cursor-pointer"
+                    style={{ background: "transparent", color: "#e2e8f0", transition: "background 0.2s" }}
+                    onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.05)"}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                    onClick={() => { setInput("Search the web for "); document.querySelector('.chat-input')?.focus(); }}
+                  >
+                    <div className="d-flex align-items-center gap-3">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                      <span style={{ fontSize: "1rem" }}>Search the web</span>
                     </div>
                   </div>
                 </div>
@@ -1472,72 +1479,101 @@ if (ctxHeader) {
         </div>
       )}
 
-      <div className="p-2 border-top d-flex gap-2 align-items-center glass-header">
-
-        <input
-          type="file"
-          id="uploadFile"
-          accept=".pdf,.txt,.docx,.xlsx,.csv,.png,.jpg,.jpeg"
-          style={{ display: "none" }}
-          onChange={handleUpload}
-        />
-
-        <label htmlFor="uploadFile" className="btn btn-outline-secondary mb-0">
-          📎
-        </label>
-
-        <button
-          className={`voice-mic-btn ${isRecording ? "recording" : ""}`}
-          onClick={toggleRecording}
-          title={isRecording ? "Listening..." : "Dictate with voice"}
-        >
-          🎙️
-        </button>
-
-        <button
-          className="btn btn-outline-info"
-          onClick={() => setShowPromptsModal(true)}
-          title="Prompt Library"
-        >
-          📑
-        </button>
-
-        <textarea
-          className="form-control chat-input"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Send a message..."
-          onKeyDown={handleKeyDown}
-          rows={1}
-          style={{ resize: "none" }}
-        />
-
+      <div className="d-flex flex-column align-items-center w-100 px-2 pb-3 position-relative" style={{ background: "transparent", zIndex: 100 }}>
+        
         {messages.length > 0 && (
-          <button
-            className="btn btn-outline-info d-flex align-items-center gap-1"
-            onClick={exportPdfReport}
-            title="Export chat to PDF"
-          >
-            📄 PDF Report
-          </button>
+           <div className="d-flex justify-content-end w-100 mb-2" style={{ maxWidth: "768px" }}>
+              <button
+                className="btn btn-sm btn-outline-info d-flex align-items-center gap-1 rounded-pill"
+                onClick={exportPdfReport}
+                title="Export chat to PDF"
+                style={{ fontSize: "0.75rem", background: "rgba(6,182,212,0.1)", backdropFilter: "blur(10px)", border: "1px solid rgba(6,182,212,0.2)" }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                PDF Report
+              </button>
+           </div>
         )}
 
-        {isGenerating ? (
-          <button
-            className="btn btn-danger d-flex align-items-center gap-2"
-            onClick={handleStop}
-          >
-            <span>Stop Generating</span>
-            <span style={{ fontSize: "0.80rem" }}>⏹</span>
-          </button>
-        ) : (
-          <button
-            className="btn btn-primary px-4"
-            onClick={send}
-          >
-            Send
-          </button>
-        )}
+        <div 
+          className="d-flex align-items-end gap-1 p-1 w-100" 
+          style={{ 
+            maxWidth: "768px", 
+            background: "rgba(30, 30, 35, 0.8)", 
+            borderRadius: "26px", 
+            border: "1px solid rgba(255,255,255,0.08)", 
+            backdropFilter: "blur(20px)",
+            boxShadow: "0 10px 30px rgba(0,0,0,0.3)" 
+          }}
+        >
+          <div className="d-flex align-items-center gap-1 pb-1 ps-1">
+            <input
+              type="file"
+              id="uploadFile"
+              accept=".pdf,.txt,.docx,.xlsx,.csv,.png,.jpg,.jpeg"
+              style={{ display: "none" }}
+              onChange={handleUpload}
+            />
+            <label htmlFor="uploadFile" className="btn btn-sm btn-link mb-0 rounded-circle text-muted d-flex align-items-center justify-content-center cursor-pointer" style={{ width: "40px", height: "40px", textDecoration: "none" }} title="Upload File">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+            </label>
+
+            <button
+              className={`btn btn-sm btn-link mb-0 rounded-circle d-flex align-items-center justify-content-center ${isRecording ? "text-danger" : "text-muted"}`}
+              onClick={toggleRecording}
+              title={isRecording ? "Listening..." : "Dictate with voice"}
+              style={{ width: "40px", height: "40px", textDecoration: "none" }}
+            >
+              {isRecording ? (
+                <span className="spinner-grow spinner-grow-sm text-danger" role="status" aria-hidden="true" style={{ width: "16px", height: "16px" }}></span>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+              )}
+            </button>
+
+            <button
+              className="btn btn-sm btn-link mb-0 rounded-circle text-muted d-flex align-items-center justify-content-center"
+              onClick={() => setShowPromptsModal(true)}
+              title="Prompt Library"
+              style={{ width: "40px", height: "40px", textDecoration: "none" }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+            </button>
+          </div>
+
+          <textarea
+            className="form-control flex-grow-1 border-0 bg-transparent text-light shadow-none mb-0 py-2 ps-2"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Ask anything"
+            onKeyDown={handleKeyDown}
+            rows={1}
+            style={{ resize: "none", fontSize: "0.98rem", lineHeight: "1.5", maxHeight: "150px" }}
+          />
+
+          <div className="pb-1 pe-1">
+            {isGenerating ? (
+              <button
+                className="btn btn-danger rounded-circle p-0 d-flex align-items-center justify-content-center"
+                style={{ width: "40px", height: "40px", flexShrink: 0 }}
+                onClick={handleStop}
+                title="Stop Generating"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="3" ry="3"/></svg>
+              </button>
+            ) : (
+              <button
+                className="btn border-0 rounded-circle p-0 d-flex align-items-center justify-content-center"
+                style={{ width: "40px", height: "40px", flexShrink: 0, background: input.trim() ? "#ffffff" : "rgba(255,255,255,0.1)", transition: "background 0.2s, transform 0.1s" }}
+                onClick={send}
+                disabled={!input.trim()}
+                title="Send Message"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill={input.trim() ? "#000000" : "#a1a1aa"} style={{ marginLeft: "2px" }}><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Prompts Modal - Fully inline styled */}
