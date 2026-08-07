@@ -134,9 +134,9 @@ export default function ChatWindow({ user, conversationId, setContextData, onCon
     }
   };
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     loadPrompts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const handleSavePrompt = async () => {
@@ -176,7 +176,6 @@ export default function ChatWindow({ user, conversationId, setContextData, onCon
   // ============================
   const [activeSpeakId, setActiveSpeakId] = useState(null);
   const [copiedId, setCopiedId] = useState(null);       // tracks which msg was just copied
-  const [thumbsId, setThumbsId] = useState(null);       // tracks thumbs up/down per msg
   const [thumbsVal, setThumbsVal] = useState({});       // { msgId: 'up'|'down' }
   const [showMoreMenu, setShowMoreMenu] = useState(null); // message id for '...' popup
   const [showVoiceSubMenu, setShowVoiceSubMenu] = useState(false); // inside more-menu
@@ -192,7 +191,6 @@ export default function ChatWindow({ user, conversationId, setContextData, onCon
   );
   // Keep a ref in sync so toggleSpeakText (a closure) always reads the latest mode
   const voiceModeRef = useRef(localStorage.getItem("voice_mode") || "default");
-  const [showVoiceMenu, setShowVoiceMenu] = useState(null); // message id
 
   // ---------------------------------------------------------------
   // Cache voices after the async voiceschanged event fires.

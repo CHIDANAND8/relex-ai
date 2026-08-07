@@ -273,7 +273,6 @@ return ( <div className="user-page-wrapper">
                   
                   // Normalize role label
                   const isRoleAdmin = String(u.role).toLowerCase() === "admin" || String(u.role).toLowerCase() === "administrator";
-                  const roleLabel = isRoleAdmin ? "Admin" : "User";
                   
                   return (
                     <tr key={u.id} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>

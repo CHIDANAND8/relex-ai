@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 import ContextPanel from "../components/ContextPanel";
 import Sidebar from "../components/Sidebar";
-import PremiumBackground from "../components/PremiumBackground";
-import CinematicOverlay from "../components/CinematicOverlay";
 
 export default function ContextPage() {
 
