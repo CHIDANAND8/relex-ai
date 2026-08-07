@@ -99,7 +99,7 @@ def detect_query_type(question: str):
             return "generation"
 
     # 0.5 File Generation Intent
-    file_gen_pattern = r"\b(generate|create|make|build).{0,15}(excel|csv|spreadsheet|pdf|word|document|docx|text file)\b"
+    file_gen_pattern = r"\b(generate|create|make|build|convert|save|download|export|provide).{0,25}(excel|csv|spreadsheet|pdf|word|document|docx|doc|txt|text file)\b"
     if re.search(file_gen_pattern, q_lower):
         return "file_generation"
 
@@ -330,6 +330,8 @@ def chat(request: Request, data: ChatRequest, db: Session = Depends(get_db)):
             headers={"X-AI-Context": "{}"}
         )
 
+    mem_ctx = get_memory_context(db, conv_id, branch_id) or ""
+
     # =====================================================
     # NATIVE DOCUMENT GENERATION (EXCEL, WORD, PDF)
     # =====================================================
@@ -344,7 +346,7 @@ def chat(request: Request, data: ChatRequest, db: Session = Depends(get_db)):
             file_type = "txt"
             if "excel" in q_lower or "csv" in q_lower or "spreadsheet" in q_lower:
                 file_type = "csv"
-            elif "word" in q_lower or "docx" in q_lower:
+            elif "word" in q_lower or "docx" in q_lower or "doc" in q_lower:
                 file_type = "doc"
             elif "pdf" in q_lower:
                 file_type = "md" # Fallback to markdown since we don't have PDF libraries, frontend or user can print to PDF
@@ -355,7 +357,7 @@ def chat(request: Request, data: ChatRequest, db: Session = Depends(get_db)):
             else:
                 system_prompt += "Generate the written content for the document. Format it cleanly without code blocks."
                 
-            full_prompt = f"{system_prompt}\n\nUser request: {question}"
+            full_prompt = f"{system_prompt}\n\n[Previous Conversation Context for reference:\n{mem_ctx}]\n\nUser request: {question}"
             
             # Generate content using blocking chat
             ai_content = blocking_chat(full_prompt)
@@ -396,7 +398,6 @@ def chat(request: Request, data: ChatRequest, db: Session = Depends(get_db)):
             headers={"X-AI-Context": "{}"}
         )
 
-    mem_ctx = get_memory_context(db, conv_id, branch_id) or ""
 
     doc_ctx = ""
     feed_ctx = ""
