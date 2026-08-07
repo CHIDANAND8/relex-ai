@@ -142,15 +142,10 @@ export const markFeedViewed = (feedId, username) =>
     });
 
 export const uploadAdminFeedDocument = async(formData) => {
-    const res = await fetch((process.env.REACT_APP_API_URL || "http://localhost:8000") + "/admin/feed-document", {
+    return apiFetch("/admin/feed-document", {
         method: "POST",
         body: formData,
     });
-    if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Admin feed document upload failed");
-    }
-    return res.json();
 };
 
 /* =========================
@@ -161,17 +156,10 @@ export const uploadFile = async(file) => {
     const formData = new FormData();
     formData.append("file", file);
 
-    const res = await fetch((process.env.REACT_APP_API_URL || "http://localhost:8000") + "/upload", {
+    return apiFetch("/upload", {
         method: "POST",
         body: formData,
     });
-
-    if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Upload failed");
-    }
-
-    return res.json();
 };
 
 /* =========================

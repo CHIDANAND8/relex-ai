@@ -175,8 +175,102 @@ export default function ChatWindow({ user, conversationId, setContextData, onCon
   // VOICE & PDF INTERACTION HELPERS
   // ============================
   const [activeSpeakId, setActiveSpeakId] = useState(null);
+  const [copiedId, setCopiedId] = useState(null);       // tracks which msg was just copied
+  const [thumbsId, setThumbsId] = useState(null);       // tracks thumbs up/down per msg
+  const [thumbsVal, setThumbsVal] = useState({});       // { msgId: 'up'|'down' }
+  const [showMoreMenu, setShowMoreMenu] = useState(null); // message id for '...' popup
+  const [showVoiceSubMenu, setShowVoiceSubMenu] = useState(false); // inside more-menu
+  const [showShareModal, setShowShareModal] = useState(false);     // share modal
+  const [shareModalMsg, setShareModalMsg] = useState(null);        // { content, shareUrl }
+  const [shareModalCopied, setShareModalCopied] = useState(false); // copy-link feedback
   const [isRecording, setIsRecording] = useState(false);
   const recognitionRef = useRef(null);
+
+  // Voice mode: 'default' | 'female_young' | 'female_mature' | 'male_deep'
+  const [voiceMode, setVoiceMode] = useState(() =>
+    localStorage.getItem("voice_mode") || "default"
+  );
+  // Keep a ref in sync so toggleSpeakText (a closure) always reads the latest mode
+  const voiceModeRef = useRef(localStorage.getItem("voice_mode") || "default");
+  const [showVoiceMenu, setShowVoiceMenu] = useState(null); // message id
+
+  // ---------------------------------------------------------------
+  // Cache voices after the async voiceschanged event fires.
+  // getVoices() returns [] on first call in Chrome/Edge, causing
+  // voice selection to silently fall back to the system default.
+  // ---------------------------------------------------------------
+  const cachedVoicesRef = useRef([]);
+
+  useEffect(() => {
+    const loadVoices = () => {
+      const v = window.speechSynthesis.getVoices();
+      if (v && v.length > 0) {
+        cachedVoicesRef.current = v;
+      }
+    };
+    // Try immediately (works in Firefox)
+    loadVoices();
+    // Also listen for the async event (required for Chrome / Edge)
+    window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
+    return () => {
+      window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
+    };
+  }, []);
+
+  // Helper — pick the best available voice for a given mode
+  const getVoice = (mode) => {
+    // Prefer live list; fall back to cached list populated by voiceschanged
+    const live = window.speechSynthesis.getVoices();
+    const voices = live.length > 0 ? live : cachedVoicesRef.current;
+    if (!voices.length) return null;
+
+    if (mode === "female_young") {
+      // Bright, clear female voices
+      const preferred = ["Microsoft Zira", "Google UK English Female", "Samantha", "Karen", "Tessa"];
+      for (const name of preferred) {
+        const v = voices.find(v => v.name.includes(name));
+        if (v) return v;
+      }
+      // Generic female fallback
+      return voices.find(v =>
+        v.name.toLowerCase().includes("female") ||
+        ["zira", "linda", "aria"].some(n => v.name.toLowerCase().includes(n))
+      ) || null;
+    }
+
+    if (mode === "female_mature") {
+      // Calm, mature female voices.
+      // NOTE: "Google US English" was intentionally removed — it is a MALE voice.
+      const preferred = ["Microsoft Hazel", "Microsoft Susan", "Moira", "Fiona", "Victoria", "Microsoft Zira"];
+      for (const name of preferred) {
+        const v = voices.find(v => v.name.includes(name));
+        if (v) return v;
+      }
+      // Generic female fallback — avoid voices with 'male' in their name
+      return voices.find(v =>
+        v.name.toLowerCase().includes("female") ||
+        ["hazel", "susan", "linda", "zira"].some(n => v.name.toLowerCase().includes(n))
+      ) || null;
+    }
+
+    if (mode === "male_deep") {
+      // Deep, authoritative male voices
+      const preferred = ["Microsoft David", "Microsoft Mark", "Google UK English Male", "Daniel", "Arthur", "Alex", "Fred"];
+      for (const name of preferred) {
+        const v = voices.find(v => v.name.includes(name));
+        if (v) return v;
+      }
+      // Generic male fallback — avoid voices with 'female' in their name
+      return voices.find(v =>
+        !v.name.toLowerCase().includes("female") && (
+          v.name.toLowerCase().includes("male") ||
+          ["david", "mark", "george", "james", "richard"].some(n => v.name.toLowerCase().includes(n))
+        )
+      ) || null;
+    }
+
+    return null; // default = browser default
+  };
 
   const toggleSpeakText = (id, text) => {
     if (activeSpeakId === id) {
@@ -184,10 +278,44 @@ export default function ChatWindow({ user, conversationId, setContextData, onCon
       setActiveSpeakId(null);
     } else {
       window.speechSynthesis.cancel();
-      // Remove inline citation brackets [filename.pdf #Chunk X] for smooth text dictation
-      const cleanText = text.replace(/\[.*?\]/g, "");
+      // Strip markdown-style annotations
+      const cleanText = text
+        .replace(/\[.*?\]/g, "")
+        .replace(/#{1,6}\s?/g, "")
+        .replace(/[*_`~]/g, "")
+        .trim();
       const utterance = new SpeechSynthesisUtterance(cleanText);
-      utterance.onend = () => setActiveSpeakId(null);
+
+      // Use voiceModeRef so we always get the current mode even inside a closure
+      const mode = voiceModeRef.current;
+
+      if (mode === "female_young") {
+        utterance.pitch  = 1.35;   // Bright, cheerful
+        utterance.rate   = 1.05;
+        utterance.volume = 1.0;
+        const voice = getVoice("female_young");
+        if (voice) utterance.voice = voice;
+      } else if (mode === "female_mature") {
+        utterance.pitch  = 1.0;    // Natural pitch — let the voice itself sound female
+        utterance.rate   = 0.92;   // Slightly slower, calm delivery
+        utterance.volume = 1.0;
+        const voice = getVoice("female_mature");
+        if (voice) utterance.voice = voice;
+      } else if (mode === "male_deep") {
+        utterance.pitch  = 0.7;    // Lower pitch for depth
+        utterance.rate   = 0.93;   // Steady, deliberate pace
+        utterance.volume = 1.0;
+        const voice = getVoice("male_deep");
+        if (voice) utterance.voice = voice;
+      } else {
+        // Default: browser system voice, unmodified
+        utterance.pitch  = 1.0;
+        utterance.rate   = 1.0;
+        utterance.volume = 1.0;
+      }
+
+      utterance.lang = "en-US";
+      utterance.onend   = () => setActiveSpeakId(null);
       utterance.onerror = () => setActiveSpeakId(null);
       window.speechSynthesis.speak(utterance);
       setActiveSpeakId(id);
@@ -1110,22 +1238,235 @@ if (ctxHeader) {
               </div>
             )}
     
-            {messages.map((m, i) => (
-              <div key={i} className={`position-relative ${m.role === "assistant" ? "ai-message" : ""}`}>
+            {messages.map((m, i) => {
+              const msgKey = m.id || i;
+              return (
+              <div key={i} className={`position-relative msg-row ${m.role === "assistant" ? "ai-message" : ""}`}>
                 <MessageBubble role={m.role} text={m.content} isStreaming={m.isStreaming} />
+
+                {/* =============================================
+                    ChatGPT-style action bar — shows on hover
+                    ============================================= */}
                 {m.role === "assistant" && !m.isStreaming && m.content && (
-                  <div className="d-flex justify-content-start mt-1 ms-3 mb-2">
+                  <div className="msg-action-bar d-flex align-items-center gap-1 ms-2 mb-3">
+
+                    {/* Copy */}
                     <button
-                      className={`voice-speaker-btn ${activeSpeakId === m.id ? "active" : ""}`}
-                      onClick={() => toggleSpeakText(m.id || i, m.content)}
-                      title="Speak response aloud"
+                      className="msg-icon-btn"
+                      title="Copy"
+                      onClick={() => {
+                        navigator.clipboard.writeText(m.content);
+                        setCopiedId(msgKey);
+                        setTimeout(() => setCopiedId(null), 1800);
+                      }}
                     >
-                      🔊 Speak Answer
+                      {copiedId === msgKey ? (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                      ) : (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                      )}
                     </button>
+
+                    {/* Thumbs Up */}
+                    <button
+                      className={`msg-icon-btn ${thumbsVal[msgKey] === 'up' ? 'msg-icon-btn--active-good' : ''}`}
+                      title="Good response"
+                      onClick={() => setThumbsVal(p => ({ ...p, [msgKey]: p[msgKey] === 'up' ? null : 'up' }))}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill={thumbsVal[msgKey] === 'up' ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+                    </button>
+
+                    {/* Thumbs Down */}
+                    <button
+                      className={`msg-icon-btn ${thumbsVal[msgKey] === 'down' ? 'msg-icon-btn--active-bad' : ''}`}
+                      title="Bad response"
+                      onClick={() => setThumbsVal(p => ({ ...p, [msgKey]: p[msgKey] === 'down' ? null : 'down' }))}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill={thumbsVal[msgKey] === 'down' ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>
+                    </button>
+
+                    {/* Share — opens the ChatGPT-style share modal */}
+                    <button
+                      className="msg-icon-btn"
+                      title="Share"
+                      onClick={async () => {
+                        let shareUrl = window.location.href;
+                        try {
+                          const res = await generateShareLink(conversationId);
+                          if (res?.share_url) shareUrl = res.share_url;
+                        } catch(e) { /* use current URL as fallback */ }
+                        setShareModalMsg({ content: m.content, shareUrl });
+                        setShareModalCopied(false);
+                        setShowShareModal(true);
+                      }}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                    </button>
+
+                    {/* Regenerate */}
+                    <button
+                      className="msg-icon-btn"
+                      title="Regenerate response"
+                      onClick={() => {
+                        // find last user message and resend it
+                        const lastUser = [...messages].reverse().find(x => x.role === 'user');
+                        if (lastUser) { setInput(lastUser.content); }
+                      }}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                    </button>
+
+                    {/* ··· More menu */}
+                    <div className="position-relative">
+                      <button
+                        className="msg-icon-btn"
+                        title="More options"
+                        onClick={() => {
+                          setShowMoreMenu(prev => prev === msgKey ? null : msgKey);
+                          setShowVoiceSubMenu(false);
+                        }}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
+                      </button>
+
+                      {showMoreMenu === msgKey && (
+                        <>
+                          {/* Backdrop */}
+                          <div
+                            onClick={() => { setShowMoreMenu(null); setShowVoiceSubMenu(false); }}
+                            style={{ position:"fixed", inset:0, zIndex:1199 }}
+                          />
+
+                          {/* Popup card — ChatGPT style */}
+                          <div style={{
+                            position:"absolute", bottom:"calc(100% + 8px)", left:0,
+                            background:"rgba(18,18,28,0.98)",
+                            border:"1px solid rgba(255,255,255,0.1)",
+                            borderRadius:"14px",
+                            padding:"6px",
+                            zIndex:1200,
+                            minWidth:"210px",
+                            boxShadow:"0 16px 48px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)",
+                            backdropFilter:"blur(16px)"
+                          }}>
+
+                            {/* Timestamp label */}
+                            {/*<div style={{ fontSize:"0.68rem", color:"#475569", padding:"4px 12px 8px", letterSpacing:"0.3px" }}>
+                              {new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' })}
+                            </div>*/}
+
+                            {/* View sources */}
+                            <button
+                              className="more-menu-item"
+                              onClick={() => {
+                                navigate('/context');
+                                setShowMoreMenu(null);
+                              }}
+                            >
+                              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                              <span>View sources</span>
+                            </button>
+
+                            {/* Branch in new chat */}
+                            <button
+                              className="more-menu-item"
+                              onClick={async () => {
+                                try {
+                                  const snippet = m.content.slice(0, 60);
+                                  const newConv = await createConversation({ user_id: user.id, title: `Branch: ${snippet}` });
+                                  if (newConv?.id) {
+                                    if (onConversationCreated) onConversationCreated(newConv.id);
+                                  }
+                                } catch(e) { console.log(e); }
+                                setShowMoreMenu(null);
+                              }}
+                            >
+                              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+                              <span>Branch in new chat</span>
+                            </button>
+
+                            <div style={{ height:"1px", background:"rgba(255,255,255,0.07)", margin:"4px 8px" }} />
+
+                            {/* Read aloud — expands voice sub-menu */}
+                            <button
+                              className="more-menu-item"
+                              onClick={() => setShowVoiceSubMenu(p => !p)}
+                            >
+                              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                              <span>
+                                {activeSpeakId === msgKey ? "⏹ Stop reading" : "Read aloud"}
+                                {voiceMode !== "default" && (
+                                  <span style={{ fontSize:"0.7rem", color:"#64748b", marginLeft:"6px" }}>
+                                    ({voiceMode === "male_deep" ? "👨 Male" : voiceMode === "female_young" ? "👩 Young" : "👩 Calm"})
+                                  </span>
+                                )}
+                              </span>
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft:"auto", transform: showVoiceSubMenu ? "rotate(180deg)":"rotate(0deg)", transition:"transform 0.2s" }}><polyline points="6 9 12 15 18 9"/></svg>
+                            </button>
+
+                            {/* Read aloud action row */}
+                            <div style={{ display:"flex", gap:"6px", padding:"4px 8px 2px", justifyContent:"space-between" }}>
+                              <button
+                                className="read-aloud-play-btn"
+                                onClick={() => {
+                                  setShowMoreMenu(null);
+                                  toggleSpeakText(msgKey, m.content);
+                                }}
+                              >
+                                {activeSpeakId === msgKey
+                                  ? <><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> Stop</>
+                                  : <><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg> Play</>}
+                              </button>
+                            </div>
+
+                            {/* Voice sub-menu */}
+                            {showVoiceSubMenu && (
+                              <div style={{ padding:"4px 6px 4px" }}>
+                                {[
+                                  { id: "default",       icon: "🔊", label: "Default",        sub: "System voice" },
+                                  { id: "female_young",  icon: "👩", label: "Female · Young", sub: "Clear & energetic" },
+                                  { id: "female_mature", icon: "👩", label: "Female · Calm",  sub: "Mature & steady" },
+                                  { id: "male_deep",     icon: "👨", label: "Male · Deep",    sub: "Deep & authoritative" },
+                                ].map(opt => (
+                                  <div
+                                    key={opt.id}
+                                    onClick={() => {
+                                      setVoiceMode(opt.id);
+                                      voiceModeRef.current = opt.id;
+                                      localStorage.setItem("voice_mode", opt.id);
+                                      setShowVoiceSubMenu(false);
+                                    }}
+                                    style={{
+                                      display:"flex", alignItems:"center", gap:"10px",
+                                      padding:"7px 10px", borderRadius:"8px", cursor:"pointer",
+                                      background: voiceMode === opt.id ? "rgba(139,92,246,0.15)" : "transparent",
+                                      border: voiceMode === opt.id ? "1px solid rgba(139,92,246,0.35)" : "1px solid transparent",
+                                      marginBottom:"2px"
+                                    }}
+                                  >
+                                    <span style={{ fontSize:"1rem" }}>{opt.icon}</span>
+                                    <div>
+                                      <div style={{ fontSize:"0.8rem", fontWeight:600, color: voiceMode === opt.id ? "#a78bfa" : "#e2e8f0" }}>{opt.label}</div>
+                                      <div style={{ fontSize:"0.68rem", color:"#475569" }}>{opt.sub}</div>
+                                    </div>
+                                    {voiceMode === opt.id && (
+                                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft:"auto" }}><polyline points="20 6 9 17 4 12"/></svg>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                          </div>
+                        </>
+                      )}
+                    </div>
+
                   </div>
                 )}
               </div>
-            ))}
+            );
+            })}
     
             {isStreamingRef.current && messages.length > 0 && messages[messages.length - 1].role === "assistant" && !messages[messages.length - 1].content && (
               <div className="typing-indicator mt-2 mb-3 ms-2">
@@ -1274,6 +1615,243 @@ if (ctxHeader) {
                   Save
                 </button>
               </div>
+            </div>
+          </div>
+        </>
+      )}
+
+
+      {/* =========================================================
+          CHATGPT-STYLE SHARE MODAL
+      ========================================================= */}
+      {showShareModal && shareModalMsg && (
+        <>
+          {/* Backdrop */}
+          <div
+            onClick={() => setShowShareModal(false)}
+            style={{
+              position: "fixed", inset: 0,
+              background: "rgba(0,0,0,0.72)",
+              backdropFilter: "blur(6px)",
+              zIndex: 8000
+            }}
+          />
+
+          {/* Modal card */}
+          <div style={{
+            position: "fixed",
+            top: "50%", left: "50%",
+            transform: "translate(-50%, -50%)",
+            background: "#1a1a1a",
+            border: "1px solid rgba(255,255,255,0.1)",
+            borderRadius: "20px",
+            width: "min(520px, 92vw)",
+            zIndex: 8001,
+            boxShadow: "0 32px 80px rgba(0,0,0,0.8)",
+            overflow: "hidden",
+            fontFamily: "'Inter', sans-serif"
+          }}>
+
+            {/* Header */}
+            <div style={{
+              display: "flex", alignItems: "center",
+              justifyContent: "space-between",
+              padding: "22px 24px 18px",
+              borderBottom: "1px solid rgba(255,255,255,0.08)"
+            }}>
+              <h2 style={{ margin: 0, fontSize: "1.35rem", fontWeight: 700, color: "#ffffff" }}>
+                Share
+              </h2>
+              <button
+                onClick={() => setShowShareModal(false)}
+                style={{
+                  background: "none", border: "none", color: "#94a3b8",
+                  cursor: "pointer", padding: "6px", borderRadius: "8px",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  transition: "color 0.15s ease, background 0.15s ease"
+                }}
+                onMouseEnter={e => { e.currentTarget.style.color = "#fff"; e.currentTarget.style.background = "rgba(255,255,255,0.07)"; }}
+                onMouseLeave={e => { e.currentTarget.style.color = "#94a3b8"; e.currentTarget.style.background = "none"; }}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: "20px 24px 26px" }}>
+
+              {/* Message preview card */}
+              <div style={{
+                background: "#2a2a2a",
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: "14px",
+                overflow: "hidden",
+                marginBottom: "28px"
+              }}>
+                {/* Card toolbar */}
+                <div style={{
+                  display: "flex", alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "10px 14px",
+                  borderBottom: "1px solid rgba(255,255,255,0.06)"
+                }}>
+                  {/* Edit button */}
+                  <button
+                    style={{
+                      display: "flex", alignItems: "center", gap: "6px",
+                      background: "none", border: "none",
+                      color: "#94a3b8", fontSize: "0.82rem", fontWeight: 600,
+                      cursor: "pointer", padding: "4px 8px",
+                      borderRadius: "7px", transition: "background 0.15s"
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.07)"}
+                    onMouseLeave={e => e.currentTarget.style.background = "none"}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    Edit
+                  </button>
+
+                  {/* Right icons: Copy / Download / Expand */}
+                  <div style={{ display: "flex", gap: "4px" }}>
+                    {[
+                      {
+                        title: "Copy",
+                        onClick: () => { navigator.clipboard.writeText(shareModalMsg.content); },
+                        icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                      },
+                      {
+                        title: "Download",
+                        onClick: () => {
+                          const blob = new Blob([shareModalMsg.content], { type: "text/plain" });
+                          const a = document.createElement("a");
+                          a.href = URL.createObjectURL(blob);
+                          a.download = "relex-ai-response.txt";
+                          a.click();
+                        },
+                        icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                      },
+                      {
+                        title: "Expand",
+                        onClick: () => {},
+                        icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>
+                      }
+                    ].map((btn, bi) => (
+                      <button
+                        key={bi}
+                        title={btn.title}
+                        onClick={btn.onClick}
+                        style={{
+                          background: "none", border: "none",
+                          color: "#94a3b8", cursor: "pointer",
+                          padding: "5px", borderRadius: "7px",
+                          display: "flex", alignItems: "center",
+                          transition: "all 0.15s ease"
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.color = "#e2e8f0"; e.currentTarget.style.background = "rgba(255,255,255,0.07)"; }}
+                        onMouseLeave={e => { e.currentTarget.style.color = "#94a3b8"; e.currentTarget.style.background = "none"; }}
+                      >
+                        {btn.icon}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Message preview text */}
+                <div style={{
+                  padding: "14px 16px",
+                  maxHeight: "160px",
+                  overflowY: "auto",
+                  lineHeight: 1.65,
+                  color: "#d4d4d4",
+                  fontSize: "0.88rem"
+                }}>
+                  {shareModalMsg.content.slice(0, 420)}{shareModalMsg.content.length > 420 ? "…" : ""}
+                </div>
+
+                {/* RELEX AI watermark */}
+                <div style={{
+                  padding: "10px 16px",
+                  borderTop: "1px solid rgba(255,255,255,0.05)",
+                  display: "flex", justifyContent: "flex-end"
+                }}>
+                  <span style={{
+                    fontSize: "0.8rem", fontWeight: 800,
+                    color: "#ffffff", letterSpacing: "-0.02em", opacity: 0.85
+                  }}>
+                    RELEX AI
+                  </span>
+                </div>
+              </div>
+
+              {/* Social share circles */}
+              <div style={{
+                display: "flex",
+                justifyContent: "center",
+                gap: "28px"
+              }}>
+                {[
+                  {
+                    label: "Copy link",
+                    bg: "#ffffff",
+                    color: "#000000",
+                    onClick: () => {
+                      navigator.clipboard.writeText(shareModalMsg.shareUrl);
+                      setShareModalCopied(true);
+                      setTimeout(() => setShareModalCopied(false), 2000);
+                    },
+                    icon: shareModalCopied
+                      ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                      : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                  },
+                  {
+                    label: "X",
+                    bg: "#000000",
+                    color: "#ffffff",
+                    onClick: () => window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareModalMsg.content.slice(0,240))}&url=${encodeURIComponent(shareModalMsg.shareUrl)}`, "_blank"),
+                    icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                  },
+                  {
+                    label: "LinkedIn",
+                    bg: "#0A66C2",
+                    color: "#ffffff",
+                    onClick: () => window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareModalMsg.shareUrl)}`, "_blank"),
+                    icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+                  },
+                  {
+                    label: "Reddit",
+                    bg: "#FF4500",
+                    color: "#ffffff",
+                    onClick: () => window.open(`https://www.reddit.com/submit?url=${encodeURIComponent(shareModalMsg.shareUrl)}&title=${encodeURIComponent(shareModalMsg.content.slice(0,100))}`, "_blank"),
+                    icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.547.533-1.684.73-2.512.73-.828 0-1.979-.196-2.512-.73a.326.326 0 0 0-.232-.095z"/></svg>
+                  }
+                ].map((s, si) => (
+                  <div key={si} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
+                    <button
+                      onClick={s.onClick}
+                      title={s.label}
+                      style={{
+                        width: "56px", height: "56px",
+                        borderRadius: "50%",
+                        background: s.bg,
+                        color: s.color,
+                        border: "none",
+                        cursor: "pointer",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        transition: "transform 0.18s ease, box-shadow 0.18s ease",
+                        boxShadow: "0 4px 16px rgba(0,0,0,0.35)"
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.transform = "scale(1.08)"; e.currentTarget.style.boxShadow = "0 8px 24px rgba(0,0,0,0.5)"; }}
+                      onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.35)"; }}
+                    >
+                      {s.icon}
+                    </button>
+                    <span style={{ fontSize: "0.75rem", color: "#94a3b8", fontWeight: 500 }}>
+                      {s.label === "Copy link" && shareModalCopied ? "Copied!" : s.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
             </div>
           </div>
         </>

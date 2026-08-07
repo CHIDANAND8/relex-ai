@@ -931,3 +931,148 @@ body.light-mode .message-bubble-ai {
         opacity: 1;
     }
 }
+
+/* =========================================================
+   CHATGPT-STYLE MESSAGE ACTION BAR
+========================================================= */
+
+/* The action bar sits below each assistant bubble */
+.msg-action-bar {
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity 0.18s ease, transform 0.18s ease;
+    pointer-events: none;
+}
+
+/* Show on row hover OR when a popup is open inside */
+.msg-row:hover .msg-action-bar,
+.msg-action-bar:has(.position-relative > div) {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+/* Always visible fallback for browsers without :has() */
+.msg-action-bar.always-visible {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+/* Icon-only action buttons */
+.msg-icon-btn {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.4);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+    line-height: 1;
+    outline: none;
+}
+
+.msg-icon-btn:hover {
+    color: rgba(255, 255, 255, 0.9);
+    background: rgba(255, 255, 255, 0.08);
+    transform: scale(1.1);
+}
+
+.msg-icon-btn:active {
+    transform: scale(0.95);
+}
+
+/* Thumbs active states */
+.msg-icon-btn--active-good {
+    color: #4ade80 !important;
+    background: rgba(74, 222, 128, 0.1) !important;
+}
+
+.msg-icon-btn--active-bad {
+    color: #f87171 !important;
+    background: rgba(248, 113, 113, 0.1) !important;
+}
+
+/* The "···" more-options popup menu items */
+.more-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    background: none;
+    border: none;
+    color: #d4d4d4;
+    padding: 9px 12px;
+    border-radius: 10px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.15s ease, color 0.15s ease;
+    font-family: 'Inter', sans-serif;
+    letter-spacing: -0.01em;
+}
+
+.more-menu-item:hover {
+    background: rgba(255, 255, 255, 0.07);
+    color: #ffffff;
+}
+
+.more-menu-item svg {
+    flex-shrink: 0;
+    color: #94a3b8;
+    transition: color 0.15s ease;
+}
+
+.more-menu-item:hover svg {
+    color: #e2e8f0;
+}
+
+/* Play/Stop mini button inside more menu */
+.read-aloud-play-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 14px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #e2e8f0;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.read-aloud-play-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.22);
+}
+
+/* Light mode overrides */
+body.light-mode .msg-icon-btn {
+    color: rgba(0, 0, 0, 0.35);
+}
+
+body.light-mode .msg-icon-btn:hover {
+    color: rgba(0, 0, 0, 0.85);
+    background: rgba(0, 0, 0, 0.05);
+}
+
+body.light-mode .more-menu-item {
+    color: #1e293b;
+}
+
+body.light-mode .more-menu-item:hover {
+    background: rgba(0, 0, 0, 0.04);
+    color: #0f172a;
+}
+
+body.light-mode .read-aloud-play-btn {
+    color: #1e293b;
+    background: rgba(0, 0, 0, 0.04);
+    border-color: rgba(0, 0, 0, 0.1);
+}

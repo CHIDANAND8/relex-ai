@@ -109,6 +109,12 @@ try {
       const formData = new FormData();
       formData.append("file", feedFile);
       formData.append("title", title);
+      
+      // Pass the feed body content too if provided
+      if (content.trim()) {
+        formData.append("content", content);
+      }
+      
       formData.append("target_user", targetUser);
       formData.append("created_by", user.username);
 

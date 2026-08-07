@@ -76,6 +76,7 @@ def create_feed(feed: dict, db: Session = Depends(get_db)):
 async def create_document_feed(
     file: UploadFile = File(...),
     title: str = Form(...),
+    content: str = Form(None),
     target_user: str = Form("ALL"),
     created_by: str = Form(None),
     db: Session = Depends(get_db)
@@ -88,8 +89,8 @@ async def create_document_feed(
     try:
         # Save file securely
         with open(file_path, "wb") as f:
-            content = await file.read()
-            f.write(content)
+            file_content = await file.read()
+            f.write(file_content)
 
         # Offload intensive OCR/Parsing
         extracted_text = await asyncio.to_thread(parse_file, file_path)
@@ -102,6 +103,10 @@ async def create_document_feed(
         # Format context explicitly as a document attachment for the AI
         final_content = f"Attached Document [{file.filename}]:\n\n{extracted_text.strip()}"
         
+        # If admin wrote a message body, prepend it
+        if content and content.strip():
+            final_content = f"{content.strip()}\n\n---\n\n{final_content}"
+
         # Hard cap to preserve RAG memory limits
         final_content = final_content[:80000]
 
@@ -119,7 +124,7 @@ async def create_document_feed(
         # Trigger live WebSocket alert
         try:
             from services.notification_service import notification_manager
-            import asyncio
+            
             loop = asyncio.get_event_loop()
             event_payload = {
                 "type": "FEED_CREATED",
@@ -140,8 +145,9 @@ async def create_document_feed(
 
     except Exception as e:
         db.rollback()
-        print("Admin Doc Feed Error:", e)
-        raise HTTPException(status_code=500, detail="Failed to process document")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to process document: {str(e)}")
 
 
 # =========================================================

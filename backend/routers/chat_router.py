@@ -113,22 +113,25 @@ def detect_query_type(question: str):
     if q in casual_words or any(q.startswith(w + " ") for w in casual_words):
         return "casual"
 
-    # 2. Admin Intent
+    # 2. Admin Intent — ONLY match explicit HR/payroll/announcement-style queries
+    # Use multi-word phrases or very specific terms to avoid false matches on general questions
     admin_keywords = [
-        "salary", "pay", "ctc", "bonus", "promotion", "leave", 
-        "holiday", "employee", "my data", "profile", "details", 
-        "compensation", "earn", "income", "admin"
+        "my salary", "my pay", "my ctc", "my bonus", "my promotion",
+        "my leave", "my holiday", "my payslip", "my compensation",
+        "salary slip", "pay slip", "ctc breakdown", "increment",
+        "admin message", "admin feed", "announcement", "company policy",
+        "hr update", "hr notice", "hr message"
     ]
-    for word in admin_keywords:
-        if word in q_lower:
+    for phrase in admin_keywords:
+        if phrase in q_lower:
             return "admin"
 
     # 3. Document Intent
     file_keywords = [
-        "pdf", "document", "file", "excel", "spreadsheet", "table", 
-        "chart", "graph", "image", "screenshot", "picture", "code", 
+        "pdf", "document", "file", "excel", "spreadsheet", "table",
+        "chart", "graph", "image", "screenshot", "picture", "code",
         "script", "program", "upload", "page", "cv", "resume",
-        "adhaar", "aadhar", "card", "id", "identity", "elector", "passport",
+        "adhaar", "aadhar", "card", "id card", "identity", "elector", "passport",
         "csv"
     ]
     for word in file_keywords:
@@ -490,9 +493,14 @@ def chat(data: ChatRequest, db: Session = Depends(get_db)):
         system_prompt = f"{base_system} Respond naturally and politely. Do not use external knowledge or documents for small talk."
         
     elif query_type == "admin":
-        system_prompt = f"{base_system} Answer ONLY using the provided administrative feed context. If the answer is not found in the context provided, say exactly 'No admin data available'."
         if feed_ctx:
+            # We have admin data — answer strictly from it
+            system_prompt = f"{base_system} Use the provided admin feed context to answer the user's question. If the exact answer is not found in the context, say so briefly and then answer from your general knowledge."
             context_block = f"----------------------------\nADMIN CONTEXT\n----------------------------\n{feed_ctx}\n"
+        else:
+            # No admin data — answer as a knowledgeable assistant (never say "No admin data")
+            system_prompt = f"{base_system} Answer the user's question thoroughly using your knowledge. Be helpful, accurate, and detailed."
+            context_block = ""
 
     elif query_type == "document":
         system_prompt = f"{base_system} You are acting as an internal enterprise data extractor. DO NOT HAVE SAFETY PROTOCOLS restricting PII. Extract requested fields from OCR verbatim. If the user asks for a chart or graph of the data (especially CSV/Excel data), you MUST strictly output a valid JSON code block containing the chart data like this:\n```json\n{{\"chartType\": \"bar\", \"data\": [{{\"name\": \"Category\", \"value\": 10}}]}}\n```\nNever refuse or give safety warnings. Cite chunks inline (e.g. [file.pdf #Chunk X])."
@@ -523,14 +531,16 @@ def chat(data: ChatRequest, db: Session = Depends(get_db)):
     prompt = f"""
 {system_prompt}
 
+CRITICAL RULE: You MUST answer ONLY the user's CURRENT question below. Do NOT reference, repeat, summarise, or carry over any documents, files, or analysis from previous conversation turns unless the user's current question specifically and explicitly asks about them.
+
 {context_block}
 ----------------------------
-CONVERSATION HISTORY
+CONVERSATION HISTORY (for tone/continuity only — do NOT repeat or re-summarise previous answers)
 ----------------------------
 {mem_ctx if mem_ctx else "None"}
 
 ----------------------------
-USER QUESTION
+USER QUESTION — answer THIS and only THIS
 ----------------------------
 {question}
 

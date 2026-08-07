@@ -1,16 +1,26 @@
-from sentence_transformers import SentenceTransformer
+import os
+import json
 import numpy as np
 
-# Load small local embedding model (downloads on first run)
-# This does NOT rely on Ollama, meaning it works perfectly on Render/Vercel
-try:
-    print("Loading embedding model (all-MiniLM-L6-v2)...")
-    model = SentenceTransformer('all-MiniLM-L6-v2')
-except Exception as e:
-    print("Failed to load SentenceTransformer:", e)
-    model = None
+# =========================================================
+# GROQ EMBEDDING SERVICE
+# Uses Groq's free nomic-embed-text-v1.5 model
+# Replaces heavy sentence-transformers + torch (2GB RAM)
+# =========================================================
 
-def _prepare_text(text: str):
+try:
+    from groq import Groq
+    _client = Groq(api_key=os.getenv("GROQ_API_KEY", ""))
+    EMBEDDING_MODEL = "nomic-embed-text-v1.5"
+    USE_GROQ_EMBEDDINGS = True
+    print("✅ Groq embedding service ready")
+except Exception as e:
+    _client = None
+    USE_GROQ_EMBEDDINGS = False
+    print(f"⚠️ Groq embedding unavailable: {e}")
+
+
+def _prepare_text(text: str) -> str:
     if not text:
         return ""
     text = text.strip()
@@ -18,29 +28,38 @@ def _prepare_text(text: str):
         text = text[:2000]
     return text
 
-def create_embeddings_batch(texts: list):
-    """Processes hundreds of chunks instantly using local sentence-transformers"""
-    valid_texts = [_prepare_text(t) for t in texts if t and t.strip()]
-    
-    if not valid_texts or model is None:
-        return []
-
-    try:
-        embeddings = model.encode(valid_texts)
-        # Convert numpy arrays to lists
-        return [emb.tolist() for emb in embeddings]
-    except Exception as e:
-        print("Batch embedding error:", e)
-        return []
 
 def create_embedding(text: str):
-    """Single text embedding wrapper"""
+    """Single text → embedding vector via Groq API"""
     text = _prepare_text(text)
-    if not text or model is None: return None
-    
-    try:
-        embedding = model.encode(text)
-        return embedding.tolist()
-    except Exception as e:
-        print("Embedding error:", e)
+    if not text:
         return None
+
+    if not USE_GROQ_EMBEDDINGS or _client is None:
+        # Fallback: return a random vector (FAISS won't match anything useful)
+        print("⚠️ No embedding model available — returning None")
+        return None
+
+    try:
+        response = _client.embeddings.create(
+            model=EMBEDDING_MODEL,
+            input=text,
+        )
+        return response.data[0].embedding
+    except Exception as e:
+        print(f"Groq embedding error: {e}")
+        return None
+
+
+def create_embeddings_batch(texts: list):
+    """Batch embed multiple texts"""
+    valid_texts = [_prepare_text(t) for t in texts if t and t.strip()]
+    if not valid_texts:
+        return []
+
+    results = []
+    for text in valid_texts:
+        emb = create_embedding(text)
+        if emb:
+            results.append(emb)
+    return results

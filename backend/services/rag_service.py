@@ -91,7 +91,7 @@ def get_memory_context(db, conversation_id: int, branch_id=None):
     msgs = (
         query
         .order_by(Message.created_at.desc())
-        .limit(4)
+        .limit(6)  # fetch 6 to have room for filtering
         .all()
     )
 
@@ -109,7 +109,16 @@ def get_memory_context(db, conversation_id: int, branch_id=None):
 
         role = "user" if m.role == "user" else "assistant"
 
-        history.append(f"{role}: {m.content}")
+        # Truncate long assistant messages (e.g. document analysis)
+        # to prevent old context from bleeding into the next answer
+        content = m.content
+        if role == "assistant" and len(content) > 500:
+            content = content[:500] + "...[truncated for context window]"
+
+        history.append(f"{role}: {content}")
+
+    # Keep only last 4 entries after the truncation pass
+    history = history[-4:]
 
     return "\n".join(history)
 

@@ -1,18 +1,28 @@
 import os
-import cv2
 import numpy as np
-import easyocr
 import fitz  # PyMuPDF
 import re
+
+# Optional heavy dependencies — disabled on cloud deployment
+try:
+    import cv2
+    import easyocr
+    OCR_AVAILABLE = True
+except ImportError:
+    cv2 = None
+    easyocr = None
+    OCR_AVAILABLE = False
+    print("⚠️ easyocr/cv2 not available — OCR disabled, using PDF text extraction only")
 
 # Lazy initialization of easyocr reader
 _reader = None
 
 def get_reader():
     global _reader
+    if not OCR_AVAILABLE:
+        return None
     if _reader is None:
-        # Load English, fallback to CPU if GPU not available
-        _reader = easyocr.Reader(['en'], gpu=True) 
+        _reader = easyocr.Reader(['en'], gpu=False)
     return _reader
 
 def clean_ocr_text(text):
