@@ -205,14 +205,18 @@ def search_conversations(user_id: int,
                          query: str,
                          db: Session = Depends(get_db)):
 
+    from models import Message
+    
     conversations = (
         db.query(Conversation)
+        .outerjoin(Message, Conversation.id == Message.conversation_id)
         .filter(
             Conversation.user_id == user_id,
             Conversation.is_archived == False,
-            Conversation.title.ilike(f"%{query}%")
+            (Conversation.title.ilike(f"%{query}%")) | (Message.content.ilike(f"%{query}%"))
         )
         .order_by(desc(Conversation.created_at))
+        .distinct()
         .all()
     )
 

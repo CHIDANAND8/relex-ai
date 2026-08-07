@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import {
 getConversations,
 createConversation,
-deleteConversation
+deleteConversation,
+searchConversations
 } from "../services/api";
 import { apiFetch } from "../services/apiClient";
 
@@ -86,13 +87,18 @@ return new Date(dateString).toLocaleString();
 const loadConversations = useCallback(async () => {
   if (!user?.id) return;
   try {
-    const data = await getConversations(user.id);
+    let data;
+    if (searchQuery.trim().length > 0) {
+      data = await searchConversations(user.id, searchQuery);
+    } else {
+      data = await getConversations(user.id);
+    }
     const safeData = Array.isArray(data) ? data : [];
     setConvs(safeData);
 
     if (activeConversationId) {
       const isOwned = safeData.some((c) => c.id === activeConversationId);
-      if (!isOwned) {
+      if (!isOwned && searchQuery.trim().length === 0) {
         onSelect(null);
         localStorage.removeItem("lastConversation");
       }
@@ -100,7 +106,7 @@ const loadConversations = useCallback(async () => {
   } catch (err) {
     console.error(err);
   }
-}, [user?.id, activeConversationId, onSelect]);
+}, [user?.id, activeConversationId, onSelect, searchQuery]);
 
 useEffect(() => {
 
@@ -267,9 +273,7 @@ try {
 // SEARCH FILTER
 // =====================================================
 
-const filteredConvs = convs.filter(c =>
-c.title.toLowerCase().includes(searchQuery.toLowerCase())
-);
+const filteredConvs = convs;
 
 // =====================================================
 // RENDER CHAT ITEM
