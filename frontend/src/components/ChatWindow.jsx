@@ -1176,6 +1176,13 @@ if (ctxHeader) {
         />
       )}
 
+      <div
+        ref={containerRef}
+        onScroll={handleScroll}
+        className="flex-grow-1 overflow-auto p-3"
+      >
+
+        {!conversationId && messages.length === 0 ? (
            <div className="h-100 d-flex flex-column justify-content-end p-3 pb-0" style={{ zIndex: 10 }}>
                 {/* Empty sleek center space */}
                 <div className="flex-grow-1"></div>
