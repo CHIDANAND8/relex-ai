@@ -26,6 +26,7 @@ export default function OAuthCallback() {
           body: JSON.stringify({
             provider: state,
             code: code,
+            redirectUri: window.location.origin + "/oauth/callback"
           }),
         });
 

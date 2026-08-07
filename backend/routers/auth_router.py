@@ -113,6 +113,7 @@ def login(data: LoginSchema, db: Session = Depends(get_db)):
 class OAuthRequest(BaseModel):
     provider: str
     code: str
+    redirectUri: str = "http://localhost:3000/oauth/callback"
 
 @router.post("/oauth-callback")
 def oauth_callback(data: OAuthRequest, db: Session = Depends(get_db)):
@@ -150,7 +151,7 @@ def oauth_callback(data: OAuthRequest, db: Session = Depends(get_db)):
                         "code": code,
                         "client_id": google_client_id,
                         "client_secret": google_client_secret,
-                        "redirect_uri": "http://localhost:3000/oauth/callback",
+                        "redirect_uri": data.redirectUri,
                         "grant_type": "authorization_code"
                     },
                     timeout=10
@@ -175,7 +176,7 @@ def oauth_callback(data: OAuthRequest, db: Session = Depends(get_db)):
                     params={
                         "client_id": facebook_client_id,
                         "client_secret": facebook_client_secret,
-                        "redirect_uri": "http://localhost:3000/oauth/callback",
+                        "redirect_uri": data.redirectUri,
                         "code": code
                     },
                     timeout=10
