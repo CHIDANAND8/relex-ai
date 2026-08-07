@@ -960,20 +960,7 @@ if (ctxHeader) {
                         </>
                       )}
 
-                      {localModels.length === 0 && (
-                        <div className="text-center py-2 px-3 rounded-3 mt-2" style={{
-                          background: "rgba(255, 255, 255, 0.02)",
-                          border: "1px dashed rgba(255, 255, 255, 0.08)",
-                          borderRadius: "10px"
-                        }}>
-                          <div style={{ fontSize: "0.72rem", color: "#64748b" }}>
-                            💻 <span style={{ color: "#475569" }}>Ollama offline or no local models found.</span>
-                          </div>
-                          <div style={{ fontSize: "0.68rem", color: "#374151", marginTop: "3px" }}>
-                            Run <code style={{ color: "#6b7280" }}>ollama serve</code> to enable local models.
-                          </div>
-                        </div>
-                      )}
+
                     </>
                   );
                 })()}
