@@ -6,6 +6,7 @@ export default function ContextPage() {
 
   const [user, setUser] = useState(null);
   const [contextData, setContextData] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   // =========================================
   // LOAD USER + CONTEXT FROM LOCAL STORAGE
@@ -43,17 +44,34 @@ export default function ContextPage() {
 
       <div className="d-flex position-relative" style={{ zIndex: 5 }}>
 
+        {/* Mobile Backdrop */}
+        {sidebarOpen && (
+          <div 
+             className="position-absolute w-100 h-100 d-md-none" 
+             style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 2 }} 
+             onClick={() => setSidebarOpen(false)} 
+          />
+        )}
+
         {/* Sidebar */}
-        <div className="glass-sidebar" style={{ width: "280px" }}>
+        <div className={`glass-sidebar position-absolute position-md-static h-100 z-3 ${sidebarOpen ? "" : "d-none d-md-block"}`} style={{ width: "280px" }}>
           <Sidebar user={user} />
         </div>
 
         {/* Context Panel */}
-        <div className="flex-grow-1 p-4 glass-main">
+        <div className="flex-grow-1 p-4 glass-main d-flex flex-column h-100 overflow-auto">
 
-          <h4 className="text-info mb-4">
-            AI Context Viewer
-          </h4>
+          <div className="d-flex align-items-center mb-4 gap-3">
+            <button
+              className="btn btn-sm btn-outline-light d-md-none"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+            >
+              ☰
+            </button>
+            <h4 className="text-info m-0">
+              AI Context Viewer
+            </h4>
+          </div>
 
           <ContextPanel contextData={contextData} />
 

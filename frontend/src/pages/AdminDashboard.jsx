@@ -198,8 +198,17 @@ return ( <div className="user-page-wrapper">
 
   <div className="d-flex position-relative" style={{ zIndex: 5 }}>
 
+    {/* Mobile Backdrop */}
+    {sidebarOpen && (
+      <div 
+         className="position-absolute w-100 h-100 d-md-none" 
+         style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 2 }} 
+         onClick={() => setSidebarOpen(false)} 
+      />
+    )}
+
     {/* SIDEBAR */}
-    <div className={`glass-sidebar ${sidebarOpen ? "" : "d-none d-md-block"}`} style={{ width: "280px" }}>
+    <div className={`glass-sidebar position-absolute position-md-static h-100 z-3 ${sidebarOpen ? "" : "d-none d-md-block"}`} style={{ width: "280px" }}>
       <Sidebar user={user} />
     </div>
 
