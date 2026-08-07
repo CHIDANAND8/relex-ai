@@ -211,7 +211,7 @@ def oauth_callback(data: OAuthRequest, db: Session = Depends(get_db)):
     if not user:
         user = User(
             username=email,
-            password=hash_password(f"SocialOAuth_{email}_RandomEntropyKeySecurePwd"),
+            password=hash_password(f"SocialOAuth_{email}_RandomEntropyKeySecurePwd"[:72]),
             role="Standard User"
         )
         db.add(user)
