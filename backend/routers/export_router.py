@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 import os
 import time
@@ -11,7 +11,7 @@ class ExportRequest(BaseModel):
     content: str
 
 @router.post("/pdf")
-def export_pdf(data: ExportRequest):
+def export_pdf(request: Request, data: ExportRequest):
     if not data.content.strip():
         raise HTTPException(status_code=400, detail="Content cannot be empty")
         
@@ -27,5 +27,5 @@ def export_pdf(data: ExportRequest):
         
     return {
         "ok": True,
-        "pdf_url": f"http://localhost:8000/uploads/{filename}"
+        "pdf_url": f"{str(request.base_url).rstrip('/')}/uploads/{filename}"
     }

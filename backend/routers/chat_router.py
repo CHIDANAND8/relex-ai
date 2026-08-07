@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -174,7 +174,8 @@ def get_available_models():
 # =========================================================
 
 @router.post("/chat")
-def chat(data: ChatRequest, db: Session = Depends(get_db)):
+def chat(request: Request, data: ChatRequest, db: Session = Depends(get_db)):
+    base_url_str = str(request.base_url).rstrip('/')
 
     username = data.username
     conv_id = data.conversation_id
@@ -269,7 +270,7 @@ def chat(data: ChatRequest, db: Session = Depends(get_db)):
                 fpath = os.path.join("uploads", fname)
                 with open(fpath, "wb") as f:
                     f.write(content)
-                return f"http://localhost:8000/uploads/{fname}"
+                return f"{base_url_str}/uploads/{fname}"
 
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -370,7 +371,7 @@ def chat(data: ChatRequest, db: Session = Depends(get_db)):
             with open(fpath, "w", encoding="utf-8") as f:
                 f.write(clean_content)
                 
-            file_url = f"http://localhost:8000/uploads/{fname}"
+            file_url = f"{base_url_str}/uploads/{fname}"
             
             # Create download link markdown
             md_link = f"✅ **File Ready!**\n\n[📥 Click here to download your {file_type.upper()} file]({file_url})"
@@ -583,7 +584,7 @@ AI ANSWER
             target_path = image_paths[0]
             if os.path.exists(target_path):
                 web_path = urllib.parse.quote(target_path.replace("\\", "/"), safe="/")
-                img_md = f"![Contextual Image](http://localhost:8000/{web_path})\n\n---\n\n"
+                img_md = f"![Contextual Image]({base_url_str}/{web_path})\n\n---\n\n"
                 full_response += img_md
                 yield img_md
 
