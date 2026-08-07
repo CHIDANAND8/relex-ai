@@ -821,7 +821,7 @@ if (ctxHeader) {
     <div className="d-flex flex-column vh-100 chat-window glass-main">
 
       {/* Top Header with Model Picker */}
-      <div className="d-flex align-items-center justify-content-between px-3 py-2 border-bottom glass-header position-relative" style={{ zIndex: 100 }}>
+      <div className="d-flex flex-wrap align-items-center gap-2 px-3 py-2 border-bottom glass-header position-relative" style={{ zIndex: 100 }}>
         <div className="position-relative">
           <button
             className="btn btn-sm d-flex align-items-center gap-2 model-selector-btn"
@@ -837,10 +837,10 @@ if (ctxHeader) {
               backdropFilter: "blur(10px)"
             }}
           >
-            <span className="badge px-2 py-1 rounded-pill" style={{ fontSize: "0.72rem", background: "rgba(0, 210, 255, 0.15)", color: "#00d2ff", border: "1px solid rgba(0, 210, 255, 0.3)" }}>
+            <span className="badge px-1 px-md-2 py-1 rounded-pill" style={{ fontSize: "0.65rem", background: "rgba(0, 210, 255, 0.15)", color: "#00d2ff", border: "1px solid rgba(0, 210, 255, 0.3)" }}>
               {currentModelObj.badge}
             </span>
-            <span className="fw-bold text-light" style={{ fontSize: "0.92rem" }}>
+            <span className="fw-bold text-light" style={{ fontSize: "0.75rem" }}>
               {currentModelObj.name}
             </span>
             <span className="text-muted" style={{ fontSize: "0.7rem", transition: "transform 0.2s ease", transform: showModelDropdown ? "rotate(180deg)" : "rotate(0deg)" }}>
@@ -986,7 +986,7 @@ if (ctxHeader) {
             }}
           >
             <span>{PERSONAS.find(p => p.id === selectedPersona)?.icon}</span>
-            <span className="fw-bold text-light" style={{ fontSize: "0.92rem" }}>
+            <span className="fw-bold text-light" style={{ fontSize: "0.75rem" }}>
               {PERSONAS.find(p => p.id === selectedPersona)?.label}
             </span>
             <span className="text-muted" style={{ fontSize: "0.7rem", transition: "transform 0.2s ease", transform: showPersonaDropdown ? "rotate(180deg)" : "rotate(0deg)" }}>
@@ -1183,33 +1183,33 @@ if (ctxHeader) {
       >
 
         {!conversationId && messages.length === 0 ? (
-           <div className="h-100 d-flex flex-column p-md-5 p-3 overflow-auto" style={{ zIndex: 10 }}>
-                <div className="mb-5 text-center text-md-start">
-                  <h1 className="text-light fw-bold display-5 mb-2">
+           <div className="h-100 d-flex flex-column p-2 p-md-5 overflow-auto" style={{ zIndex: 10 }}>
+                <div className="mb-4 text-center text-md-start">
+                  <h1 className="text-light fw-bold fs-2 mb-2">
                     Welcome to Relex AI
                   </h1>
-                  <p className="text-light-50 fs-5">Hello, <span className="text-info">{user.username}</span>! What would you like to do today?</p>
+                  <p className="text-light-50 fs-6">Hello, <span className="text-info">{user.username}</span>! What would you like to do today?</p>
                 </div>
                 
                 <div className="row g-4 mb-5">
                   <div className="col-md-4">
-                    <div className="glass-card text-center cursor-pointer h-100 d-flex flex-column justify-content-center" onClick={() => document.querySelector('.chat-input')?.focus()}>
-                      <div className="display-4 mb-3">💬</div>
-                      <h4 className="text-info mb-3">New Chat</h4>
+                    <div className="glass-card text-center cursor-pointer h-100 d-flex flex-column justify-content-center py-4" onClick={() => document.querySelector('.chat-input')?.focus()}>
+                      <div className="fs-1 mb-2">💬</div>
+                      <h5 className="text-info mb-2 fw-bold">New Chat</h5>
                       <p className="text-light-50 small mb-0">Type a message below to start.</p>
                     </div>
                   </div>
                   <div className="col-md-4">
-                    <div className="glass-card text-center cursor-pointer h-100 d-flex flex-column justify-content-center" onClick={() => navigate('/context')}>
-                      <div className="display-4 mb-3">🧠</div>
-                      <h4 className="text-warning mb-3">AI Memory</h4>
+                    <div className="glass-card text-center cursor-pointer h-100 d-flex flex-column justify-content-center py-4" onClick={() => navigate('/context')}>
+                      <div className="fs-1 mb-2">🧠</div>
+                      <h5 className="text-warning mb-2 fw-bold">AI Memory</h5>
                       <p className="text-light-50 small mb-0">View your personalized knowledge base.</p>
                     </div>
                   </div>
                   <div className="col-md-4">
-                    <div className="glass-card text-center cursor-pointer h-100 d-flex flex-column justify-content-center" onClick={() => { if(onOpenProfile) onOpenProfile(); }}>
-                      <div className="display-4 mb-3">⚙️</div>
-                      <h4 className="text-success mb-3">Settings</h4>
+                    <div className="glass-card text-center cursor-pointer h-100 d-flex flex-column justify-content-center py-4" onClick={() => { if(onOpenProfile) onOpenProfile(); }}>
+                      <div className="fs-1 mb-2">⚙️</div>
+                      <h5 className="text-success mb-2 fw-bold">Settings</h5>
                       <p className="text-light-50 small mb-0">Manage your profile and preferences.</p>
                     </div>
                   </div>
