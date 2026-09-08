@@ -253,18 +253,19 @@ async def upload(
     db.commit()
 
     embedded_count = 0
-
     ext = os.path.splitext(file.filename)[1].lower()
 
     try:
-
-        valid_chunks = [c for c in chunks if len(c) >= 120]
+        # Keep all meaningful chunks, even short tables or OCR records
+        valid_chunks = [c for c in chunks if len(c.strip()) >= 5]
+        if not valid_chunks and full_text.strip():
+            valid_chunks = [full_text.strip()]
         
         if valid_chunks:
-            # Huge speedup: Get all embeddings in ONE network call instead of hundreds!
+            # Batch embedding creation
             embeddings = create_embeddings_batch(valid_chunks)
 
-            for chunk, emb in zip(valid_chunks, embeddings):
+            for idx, (chunk, emb) in enumerate(zip(valid_chunks, embeddings)):
                 if not emb:
                     continue
 
@@ -274,6 +275,7 @@ async def upload(
                     filename=file.filename,
                     file_type=ext,
                     document_title=file_path,
+                    chunk_index=idx,
                     conversation_id=conversation_id
                 )
 
@@ -283,20 +285,21 @@ async def upload(
             db.commit()
 
     except Exception as e:
-
         db.rollback()
         print("Embedding error:", e)
 
     print("Embeddings stored:", embedded_count)
 
-    # rebuild FAISS index
+    # Rebuild search index
     if embedded_count > 0:
-
         build_faiss_index()
-
-        print("FAISS index rebuilt")
+        print("Search index rebuilt")
 
     return {
         "msg": "Upload successful",
-        "chunks_created": embedded_count
+        "chunks_created": embedded_count,
+        "filename": file.filename,
+        "file_type": ext,
+        "file_url": f"/uploads/{unique_name}",
+        "sample_text": full_text[:250] if full_text else ""
     }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import MessageBubble from "./MessageBubble";
-import { sendMessage, getMessages, createConversation, getAvailableModels, getPrompts, createPrompt, deletePrompt, generateShareLink, getUserFeeds, markFeedViewed } from "../services/api";
+import { sendMessage, getMessages, createConversation, getAvailableModels, getPrompts, createPrompt, deletePrompt, generateShareLink, getUserFeeds, markFeedViewed, exportPdf } from "../services/api";
+import { apiFetch } from "../services/apiClient";
 import { useNavigate } from "react-router-dom";
 
 /**
@@ -15,13 +16,13 @@ const DEFAULT_MODELS = [
     id: "llama-3.3-70b-versatile",
     name: "Llama 3.3 70B",
     badge: "🧠 High Accuracy",
-    description: "GPT-4 level deep reasoning, highest accuracy for complex Q&A & document analysis"
+    description: "Deep reasoning & highest accuracy for complex Q&A and coding"
   },
   {
-    id: "llama-3.1-8b-instant",
-    name: "Llama 3.1 8B",
-    badge: "⚡ Ultra Fast",
-    description: "Lightning-fast responses for everyday conversations and quick answers"
+    id: "llama3-70b-8192",
+    name: "Llama 3 70B",
+    badge: "🔬 Versatile",
+    description: "High-capacity reasoning and structured output"
   },
   {
     id: "mixtral-8x7b-32768",
@@ -34,10 +35,24 @@ const DEFAULT_MODELS = [
     name: "Gemma 2 9B",
     badge: "💎 Balanced",
     description: "Google's high-efficiency model balancing speed and nuanced understanding"
+  },
+  {
+    id: "llama3-8b-8192",
+    name: "Llama 3 8B",
+    badge: "⚡ Fast",
+    description: "Fast and lightweight Meta model"
   }
 ];
 
-export default function ChatWindow({ user, conversationId, setContextData, onConversationCreated, onOpenProfile }) {
+export default function ChatWindow({
+  user,
+  conversationId,
+  setContextData,
+  onConversationCreated,
+  sidebarOpen = true,
+  setSidebarOpen = () => {},
+  onLogout = () => {}
+}) {
 
   const navigate = useNavigate();
 
@@ -45,6 +60,7 @@ export default function ChatWindow({ user, conversationId, setContextData, onCon
   const [input, setInput] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [showProfileDropdown, setShowProfileDropdown] = useState(false);
 
   const [offset, setOffset] = useState(0);
   const limit = 20;
@@ -56,8 +72,19 @@ export default function ChatWindow({ user, conversationId, setContextData, onCon
   // ============================
   const [availableModels, setAvailableModels] = useState(DEFAULT_MODELS);
   const [selectedModel, setSelectedModel] = useState(() => {
-    return localStorage.getItem("selected_model") || "llama-3.3-70b-versatile";
+    const saved = localStorage.getItem("selected_model");
+    if (!saved || saved === "llama-3.1-8b-instant") {
+      return "llama-3.3-70b-versatile";
+    }
+    return saved;
   });
+  const currentModelObj = availableModels.find(m => m.id === selectedModel) || DEFAULT_MODELS[0] || {
+    id: "llama-3.3-70b-versatile",
+    name: "Llama 3.3 70B",
+    badge: "🧠 High Accuracy",
+    description: "Deep reasoning & highest accuracy for complex Q&A and coding"
+  };
+
   const [showModelDropdown, setShowModelDropdown] = useState(false);
 
   // ============================
@@ -164,12 +191,19 @@ export default function ChatWindow({ user, conversationId, setContextData, onCon
       .then((res) => {
         if (res && res.models && res.models.length > 0) {
           setAvailableModels(res.models);
+          setSelectedModel((prev) => {
+            const exists = res.models.some((m) => m.id === prev);
+            if (!exists || prev === "llama-3.1-8b-instant") {
+              const defaultM = res.models.find(m => m.default) || res.models[0];
+              localStorage.setItem("selected_model", defaultM.id);
+              return defaultM.id;
+            }
+            return prev;
+          });
         }
       })
       .catch((err) => console.log("Using default models registry:", err));
   }, []);
-
-  const currentModelObj = availableModels.find((m) => m.id === selectedModel) || availableModels[0];
 
   // ============================
   // VOICE & PDF INTERACTION HELPERS
@@ -393,19 +427,14 @@ export default function ChatWindow({ user, conversationId, setContextData, onCon
     }).join("\n");
     
     try {
-      const res = await fetch("http://localhost:8000/export/pdf", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: `RELEX AI Chat Report - Conversation #${conversationId || 'New'}`,
-          content: textTranscript
-        })
+      const data = await exportPdf({
+        title: `RELEX AI Chat Report - Conversation #${conversationId || 'New'}`,
+        content: textTranscript
       });
-      const data = await res.json();
-      if (data.ok && data.pdf_url) {
+      if (data && data.ok && data.pdf_url) {
         window.open(data.pdf_url, "_blank");
       } else {
-        alert("Failed to export PDF: " + (data.detail || "Unknown error"));
+        alert("Failed to export PDF: " + (data?.detail || "Unknown error"));
       }
     } catch (err) {
       console.error("PDF generation failed:", err);
@@ -774,21 +803,11 @@ if (ctxHeader) {
     formData.append("conversation_id", targetConvId);
 
     try {
-
-      const res = await fetch((process.env.REACT_APP_API_URL || "http://localhost:8000") + "/upload", {
+      await apiFetch("/upload", {
         method: "POST",
         body: formData
       });
 
-      if (!res.ok) {
-        const txt = await res.text();
-        console.error("Upload failed:", txt);
-        alert("Upload failed");
-        return;
-      }
-
-      await res.json().catch(() => null);
-      
       // Inject synthetic success message into chat stream instantly just like ChatGPT
       setMessages(prev => [...prev, { 
         role: "assistant", 
@@ -798,7 +817,7 @@ if (ctxHeader) {
 
     } catch (err) {
       console.error("Upload error:", err);
-      alert("Upload failed");
+      alert("Upload failed: " + (err.message || "Unknown error"));
     } finally {
       setIsUploading(false);
       // Reset input value so same file can be uploaded again if needed
@@ -818,225 +837,258 @@ if (ctxHeader) {
   // UI
   // ============================
   return (
-    <div className="d-flex flex-column vh-100 chat-window glass-main">
+    <div className="d-flex flex-column h-100 chat-window glass-main position-relative overflow-hidden">
 
-      {/* Top Header with Model Picker */}
-      <div className="d-flex flex-wrap align-items-center gap-2 px-3 py-2 border-bottom glass-header position-relative" style={{ zIndex: 100 }}>
-        <div className="position-relative">
+      {/* Top Unified Header */}
+      <div className="glass-header d-flex justify-content-between align-items-center position-relative" style={{ zIndex: 100 }}>
+        
+        {/* Left Side: Sidebar Toggle + Model Selector + Persona Selector */}
+        <div className="d-flex align-items-center gap-2">
+          {/* Sidebar Open/Close Toggle Button */}
           <button
-            className="btn btn-sm d-flex align-items-center gap-2 model-selector-btn"
-            onClick={() => setShowModelDropdown(!showModelDropdown)}
+            className="btn btn-sm d-flex align-items-center gap-1.5 p-1 px-2 rounded-3"
+            onClick={() => setSidebarOpen()}
+            title={sidebarOpen ? "Collapse sidebar" : "Open sidebar"}
             style={{
-              background: "rgba(255, 255, 255, 0.05)",
-              border: "1px solid rgba(255, 255, 255, 0.12)",
-              color: "#fff",
-              borderRadius: "12px",
-              padding: "6px 14px",
-              fontWeight: "600",
-              fontSize: "0.88rem",
-              backdropFilter: "blur(10px)"
+              height: "36px",
+              background: sidebarOpen ? "rgba(255, 255, 255, 0.05)" : "linear-gradient(135deg, rgba(0, 210, 255, 0.2), rgba(217, 0, 255, 0.15))",
+              border: sidebarOpen ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid rgba(0, 210, 255, 0.5)",
+              color: sidebarOpen ? "#cbd5e1" : "#00d2ff",
+              boxShadow: sidebarOpen ? "none" : "0 0 16px rgba(0, 210, 255, 0.4)",
+              cursor: "pointer",
+              transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)"
             }}
           >
-            <span className="badge px-1 px-md-2 py-1 rounded-pill" style={{ fontSize: "0.65rem", background: "rgba(0, 210, 255, 0.15)", color: "#00d2ff", border: "1px solid rgba(0, 210, 255, 0.3)" }}>
-              {currentModelObj.badge}
-            </span>
-            <span className="fw-bold text-light" style={{ fontSize: "0.75rem" }}>
-              {currentModelObj.name}
-            </span>
-            <span className="text-muted" style={{ fontSize: "0.7rem", transition: "transform 0.2s ease", transform: showModelDropdown ? "rotate(180deg)" : "rotate(0deg)" }}>
-              ▼
-            </span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              <line x1="9" y1="3" x2="9" y2="21"/>
+              {sidebarOpen ? (
+                <polyline points="15 15 12 12 15 9"/>
+              ) : (
+                <polyline points="12 9 15 12 12 15"/>
+              )}
+            </svg>
+            {!sidebarOpen && (
+              <span className="fw-bold" style={{ fontSize: "0.78rem", letterSpacing: "0.3px", paddingRight: "2px" }}>
+                Sidebar
+              </span>
+            )}
           </button>
 
-          {/* Glassmorphic Dropdown Menu */}
-          {showModelDropdown && (
-            <>
-              <div 
-                className="position-fixed top-0 start-0 w-100 h-100" 
-                style={{ zIndex: 998 }} 
-                onClick={() => setShowModelDropdown(false)} 
-              />
-              <div
-                className="position-absolute top-100 start-0 mt-2 shadow-lg glass-dropdown-menu"
-                style={{
-                  width: "340px",
-                  zIndex: 999,
-                  background: "rgba(18, 17, 28, 0.95)",
-                  backdropFilter: "blur(20px)",
-                  WebkitBackdropFilter: "blur(20px)",
-                  border: "1px solid rgba(255, 255, 255, 0.15)",
-                  borderRadius: "16px",
-                  padding: "12px",
-                  boxShadow: "0 20px 50px rgba(0,0,0,0.6)"
-                }}
-              >
-                <div className="px-2 py-1 mb-2 border-bottom border-secondary border-opacity-25 d-flex justify-content-between align-items-center">
-                  <span className="text-uppercase text-muted fw-bold" style={{ fontSize: "0.7rem", letterSpacing: "1px" }}>
-                    Select AI Model
-                  </span>
+          {/* Model Selector Dropdown */}
+          <div className="position-relative">
+            <button
+              className="btn btn-sm d-flex align-items-center gap-2 model-selector-btn"
+              onClick={() => setShowModelDropdown(!showModelDropdown)}
+              style={{
+                background: "rgba(255, 255, 255, 0.05)",
+                border: "1px solid rgba(255, 255, 255, 0.12)",
+                color: "#fff",
+                borderRadius: "12px",
+                padding: "6px 12px",
+                fontWeight: "600",
+                fontSize: "0.85rem",
+                backdropFilter: "blur(10px)"
+              }}
+            >
+              <span className="badge px-1 px-md-2 py-1 rounded-pill" style={{ fontSize: "0.65rem", background: "rgba(0, 210, 255, 0.15)", color: "#00d2ff", border: "1px solid rgba(0, 210, 255, 0.3)" }}>
+                {currentModelObj.badge}
+              </span>
+              <span className="fw-bold text-light d-none d-sm-inline" style={{ fontSize: "0.78rem" }}>
+                {currentModelObj.name}
+              </span>
+              <span className="text-muted" style={{ fontSize: "0.7rem", transition: "transform 0.2s ease", transform: showModelDropdown ? "rotate(180deg)" : "rotate(0deg)" }}>
+                ▼
+              </span>
+            </button>
+
+            {/* Glassmorphic Dropdown Menu */}
+            {showModelDropdown && (
+              <>
+                <div 
+                  className="position-fixed top-0 start-0 w-100 h-100" 
+                  style={{ zIndex: 998 }} 
+                  onClick={() => setShowModelDropdown(false)} 
+                />
+                <div
+                  className="position-absolute top-100 start-0 mt-2 shadow-lg glass-dropdown-menu"
+                  style={{
+                    width: "340px",
+                    zIndex: 999,
+                    background: "rgba(18, 17, 28, 0.95)",
+                    backdropFilter: "blur(20px)",
+                    WebkitBackdropFilter: "blur(20px)",
+                    border: "1px solid rgba(255, 255, 255, 0.15)",
+                    borderRadius: "16px",
+                    padding: "12px",
+                    boxShadow: "0 20px 50px rgba(0,0,0,0.6)"
+                  }}
+                >
+                  <div className="px-2 py-1 mb-2 border-bottom border-secondary border-opacity-25 d-flex justify-content-between align-items-center">
+                    <span className="text-uppercase text-muted fw-bold" style={{ fontSize: "0.7rem", letterSpacing: "1px" }}>
+                      Select AI Model
+                    </span>
+                  </div>
+
+                  {/* Group: Cloud Models & Local Models */}
+                  {(() => {
+                    const cloudModels = availableModels.filter(m => m.provider === "groq" || !m.provider);
+                    const localModels = availableModels.filter(m => m.provider === "ollama");
+
+                    const renderModelItem = (m) => {
+                      const isSelected = selectedModel === m.id;
+                      const isLocal = m.provider === "ollama";
+                      return (
+                        <div
+                          key={m.id}
+                          className={`p-2 mb-2 rounded-3 cursor-pointer model-option-item ${isSelected ? "active-model-item" : ""}`}
+                          style={{
+                            background: isSelected
+                              ? (isLocal ? "rgba(52, 211, 153, 0.12)" : "rgba(0, 210, 255, 0.12)")
+                              : "rgba(255, 255, 255, 0.03)",
+                            border: isSelected
+                              ? (isLocal ? "1px solid rgba(52, 211, 153, 0.4)" : "1px solid rgba(0, 210, 255, 0.4)")
+                              : "1px solid rgba(255, 255, 255, 0.06)",
+                            transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
+                            borderRadius: "12px"
+                          }}
+                          onClick={() => {
+                            setSelectedModel(m.id);
+                            localStorage.setItem("selected_model", m.id);
+                            setShowModelDropdown(false);
+                          }}
+                        >
+                          <div className="d-flex align-items-center justify-content-between mb-1">
+                            <span className="fw-bold text-light" style={{ fontSize: "0.88rem" }}>
+                              {m.name}
+                            </span>
+                            <span className="badge rounded-pill" style={{
+                              fontSize: "0.68rem",
+                              background: isSelected
+                                ? (isLocal ? "rgba(52, 211, 153, 0.25)" : "rgba(0, 210, 255, 0.25)")
+                                : "rgba(255, 255, 255, 0.08)",
+                              color: isSelected
+                                ? (isLocal ? "#34d399" : "#00d2ff")
+                                : "#cbd5e1",
+                              border: isSelected
+                                ? (isLocal ? "1px solid rgba(52, 211, 153, 0.5)" : "1px solid rgba(0, 210, 255, 0.5)")
+                                : "1px solid rgba(255, 255, 255, 0.1)"
+                            }}>
+                              {m.badge}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: "0.74rem", lineHeight: "1.35", color: "#94a3b8" }}>
+                            {m.description}
+                          </div>
+                        </div>
+                      );
+                    };
+
+                    return (
+                      <>
+                        {cloudModels.length > 0 && (
+                          <>
+                            <div className="d-flex align-items-center gap-2 mb-2 mt-1">
+                              <div style={{ flex: 1, height: "1px", background: "rgba(0, 210, 255, 0.15)" }} />
+                              <span style={{ fontSize: "0.67rem", fontWeight: "700", letterSpacing: "0.8px", color: "#00d2ff", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+                                ☁️ Groq Cloud
+                              </span>
+                              <div style={{ flex: 1, height: "1px", background: "rgba(0, 210, 255, 0.15)" }} />
+                            </div>
+                            {cloudModels.map(renderModelItem)}
+                          </>
+                        )}
+
+                        {localModels.length > 0 && (
+                          <>
+                            <div className="d-flex align-items-center gap-2 mb-2 mt-3">
+                              <div style={{ flex: 1, height: "1px", background: "rgba(52, 211, 153, 0.15)" }} />
+                              <span style={{ fontSize: "0.67rem", fontWeight: "700", letterSpacing: "0.8px", color: "#34d399", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+                                💻 Local Ollama
+                              </span>
+                              <div style={{ flex: 1, height: "1px", background: "rgba(52, 211, 153, 0.15)" }} />
+                            </div>
+                            {localModels.map(renderModelItem)}
+                          </>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
+              </>
+            )}
+          </div>
 
-                {/* Group: Cloud Models */}
-                {(() => {
-                  const cloudModels = availableModels.filter(m => m.provider === "groq" || !m.provider);
-                  const localModels = availableModels.filter(m => m.provider === "ollama");
+          {/* Persona Picker */}
+          <div className="position-relative d-none d-sm-block">
+            <button
+              className="btn btn-sm d-flex align-items-center gap-2 model-selector-btn"
+              onClick={() => setShowPersonaDropdown(!showPersonaDropdown)}
+              style={{
+                background: "rgba(255, 255, 255, 0.05)",
+                border: "1px solid rgba(255, 255, 255, 0.12)",
+                color: "#fff",
+                borderRadius: "12px",
+                padding: "6px 12px",
+                fontWeight: "600",
+                fontSize: "0.85rem",
+                backdropFilter: "blur(10px)"
+              }}
+            >
+              <span>{PERSONAS.find(p => p.id === selectedPersona)?.icon}</span>
+              <span className="fw-bold text-light" style={{ fontSize: "0.78rem" }}>
+                {PERSONAS.find(p => p.id === selectedPersona)?.label}
+              </span>
+              <span className="text-muted" style={{ fontSize: "0.7rem", transition: "transform 0.2s ease", transform: showPersonaDropdown ? "rotate(180deg)" : "rotate(0deg)" }}>
+                ▼
+              </span>
+            </button>
 
-                  const renderModelItem = (m) => {
-                    const isSelected = selectedModel === m.id;
-                    const isLocal = m.provider === "ollama";
+            {showPersonaDropdown && (
+              <>
+                <div className="position-fixed top-0 start-0 w-100 h-100" style={{ zIndex: 998 }} onClick={() => setShowPersonaDropdown(false)} />
+                <div
+                  className="position-absolute top-100 start-0 mt-2 shadow-lg glass-dropdown-menu"
+                  style={{
+                    width: "200px", zIndex: 999, background: "rgba(18, 17, 28, 0.95)",
+                    backdropFilter: "blur(20px)", border: "1px solid rgba(255, 255, 255, 0.15)",
+                    borderRadius: "16px", padding: "12px", boxShadow: "0 20px 50px rgba(0,0,0,0.6)"
+                  }}
+                >
+                  <div className="px-2 py-1 mb-2 border-bottom border-secondary border-opacity-25 text-uppercase text-muted fw-bold" style={{ fontSize: "0.7rem", letterSpacing: "1px" }}>
+                    Select Persona
+                  </div>
+                  {PERSONAS.map(p => {
+                    const isSelected = selectedPersona === p.id;
                     return (
                       <div
-                        key={m.id}
+                        key={p.id}
                         className={`p-2 mb-2 rounded-3 cursor-pointer model-option-item ${isSelected ? "active-model-item" : ""}`}
                         style={{
-                          background: isSelected
-                            ? (isLocal ? "rgba(52, 211, 153, 0.12)" : "rgba(0, 210, 255, 0.12)")
-                            : "rgba(255, 255, 255, 0.03)",
-                          border: isSelected
-                            ? (isLocal ? "1px solid rgba(52, 211, 153, 0.4)" : "1px solid rgba(0, 210, 255, 0.4)")
-                            : "1px solid rgba(255, 255, 255, 0.06)",
-                          transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
-                          borderRadius: "12px"
+                          background: isSelected ? "rgba(167, 139, 250, 0.12)" : "rgba(255, 255, 255, 0.03)",
+                          border: isSelected ? "1px solid rgba(167, 139, 250, 0.4)" : "1px solid rgba(255, 255, 255, 0.06)",
+                          borderRadius: "10px"
                         }}
                         onClick={() => {
-                          setSelectedModel(m.id);
-                          localStorage.setItem("selected_model", m.id);
-                          setShowModelDropdown(false);
+                          setSelectedPersona(p.id);
+                          localStorage.setItem("selected_persona", p.id);
+                          setShowPersonaDropdown(false);
                         }}
                       >
-                        <div className="d-flex align-items-center justify-content-between mb-1">
-                          <span className="fw-bold text-light" style={{ fontSize: "0.88rem" }}>
-                            {m.name}
-                          </span>
-                          <span className="badge rounded-pill" style={{
-                            fontSize: "0.68rem",
-                            background: isSelected
-                              ? (isLocal ? "rgba(52, 211, 153, 0.25)" : "rgba(0, 210, 255, 0.25)")
-                              : "rgba(255, 255, 255, 0.08)",
-                            color: isSelected
-                              ? (isLocal ? "#34d399" : "#00d2ff")
-                              : "#cbd5e1",
-                            border: isSelected
-                              ? (isLocal ? "1px solid rgba(52, 211, 153, 0.5)" : "1px solid rgba(0, 210, 255, 0.5)")
-                              : "1px solid rgba(255, 255, 255, 0.1)"
-                          }}>
-                            {m.badge}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: "0.74rem", lineHeight: "1.35", color: "#94a3b8" }}>
-                          {m.description}
-                        </div>
+                        <span className="me-2">{p.icon}</span>
+                        <span style={{ fontSize: "0.85rem", color: isSelected ? "#a78bfa" : "#fff", fontWeight: isSelected ? "bold" : "normal" }}>{p.label}</span>
                       </div>
                     );
-                  };
-
-                  return (
-                    <>
-                      {/* Cloud Section */}
-                      {cloudModels.length > 0 && (
-                        <>
-                          <div className="d-flex align-items-center gap-2 mb-2 mt-1">
-                            <div style={{ flex: 1, height: "1px", background: "rgba(0, 210, 255, 0.15)" }} />
-                            <span style={{ fontSize: "0.67rem", fontWeight: "700", letterSpacing: "0.8px", color: "#00d2ff", textTransform: "uppercase", whiteSpace: "nowrap" }}>
-                              ☁️ Groq Cloud
-                            </span>
-                            <div style={{ flex: 1, height: "1px", background: "rgba(0, 210, 255, 0.15)" }} />
-                          </div>
-                          {cloudModels.map(renderModelItem)}
-                        </>
-                      )}
-
-                      {/* Local Ollama Section */}
-                      {localModels.length > 0 && (
-                        <>
-                          <div className="d-flex align-items-center gap-2 mb-2 mt-3">
-                            <div style={{ flex: 1, height: "1px", background: "rgba(52, 211, 153, 0.15)" }} />
-                            <span style={{ fontSize: "0.67rem", fontWeight: "700", letterSpacing: "0.8px", color: "#34d399", textTransform: "uppercase", whiteSpace: "nowrap" }}>
-                              💻 Local Ollama
-                            </span>
-                            <div style={{ flex: 1, height: "1px", background: "rgba(52, 211, 153, 0.15)" }} />
-                          </div>
-                          {localModels.map(renderModelItem)}
-                        </>
-                      )}
-
-
-                    </>
-                  );
-                })()}
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Persona Picker */}
-        <div className="position-relative">
-          <button
-            className="btn btn-sm d-flex align-items-center gap-2 model-selector-btn"
-            onClick={() => setShowPersonaDropdown(!showPersonaDropdown)}
-            style={{
-              background: "rgba(255, 255, 255, 0.05)",
-              border: "1px solid rgba(255, 255, 255, 0.12)",
-              color: "#fff",
-              borderRadius: "12px",
-              padding: "6px 14px",
-              fontWeight: "600",
-              fontSize: "0.88rem",
-              backdropFilter: "blur(10px)"
-            }}
-          >
-            <span>{PERSONAS.find(p => p.id === selectedPersona)?.icon}</span>
-            <span className="fw-bold text-light" style={{ fontSize: "0.75rem" }}>
-              {PERSONAS.find(p => p.id === selectedPersona)?.label}
-            </span>
-            <span className="text-muted" style={{ fontSize: "0.7rem", transition: "transform 0.2s ease", transform: showPersonaDropdown ? "rotate(180deg)" : "rotate(0deg)" }}>
-              ▼
-            </span>
-          </button>
-
-          {showPersonaDropdown && (
-            <>
-              <div className="position-fixed top-0 start-0 w-100 h-100" style={{ zIndex: 998 }} onClick={() => setShowPersonaDropdown(false)} />
-              <div
-                className="position-absolute top-100 start-0 mt-2 shadow-lg glass-dropdown-menu"
-                style={{
-                  width: "200px", zIndex: 999, background: "rgba(18, 17, 28, 0.95)",
-                  backdropFilter: "blur(20px)", border: "1px solid rgba(255, 255, 255, 0.15)",
-                  borderRadius: "16px", padding: "12px", boxShadow: "0 20px 50px rgba(0,0,0,0.6)"
-                }}
-              >
-                <div className="px-2 py-1 mb-2 border-bottom border-secondary border-opacity-25 text-uppercase text-muted fw-bold" style={{ fontSize: "0.7rem", letterSpacing: "1px" }}>
-                  Select Persona
+                  })}
                 </div>
-                {PERSONAS.map(p => {
-                  const isSelected = selectedPersona === p.id;
-                  return (
-                    <div
-                      key={p.id}
-                      className={`p-2 mb-2 rounded-3 cursor-pointer model-option-item ${isSelected ? "active-model-item" : ""}`}
-                      style={{
-                        background: isSelected ? "rgba(167, 139, 250, 0.12)" : "rgba(255, 255, 255, 0.03)",
-                        border: isSelected ? "1px solid rgba(167, 139, 250, 0.4)" : "1px solid rgba(255, 255, 255, 0.06)",
-                        borderRadius: "10px"
-                      }}
-                      onClick={() => {
-                        setSelectedPersona(p.id);
-                        localStorage.setItem("selected_persona", p.id);
-                        setShowPersonaDropdown(false);
-                      }}
-                    >
-                      <span className="me-2">{p.icon}</span>
-                      <span style={{ fontSize: "0.85rem", color: isSelected ? "#a78bfa" : "#fff", fontWeight: isSelected ? "bold" : "normal" }}>{p.label}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
+              </>
+            )}
+          </div>
         </div>
 
+        {/* Right Side: Share + Messages + Memory + Profile */}
         <div className="d-flex align-items-center gap-2">
-          {/* Share Button — Native Web Share API */}
+          {/* Share Button */}
           {conversationId && (
             <button
               className="btn btn-sm d-flex align-items-center gap-1"
@@ -1052,7 +1104,6 @@ if (ctxHeader) {
                   if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
                     await navigator.share(shareData);
                   } else {
-                    // Fallback: copy to clipboard and show a styled toast
                     await navigator.clipboard.writeText(shareUrl);
                     setShareToast(shareUrl);
                     setTimeout(() => setShareToast(null), 4000);
@@ -1064,15 +1115,16 @@ if (ctxHeader) {
                 }
               }}
               style={{
-                background: "rgba(16, 185, 129, 0.15)",
+                background: "rgba(16, 185, 129, 0.12)",
                 color: "#10b981",
-                border: "1px solid rgba(16, 185, 129, 0.3)",
+                border: "1px solid rgba(16, 185, 129, 0.25)",
                 borderRadius: "10px",
-                fontSize: "0.75rem",
-                fontWeight: "600"
+                fontSize: "0.78rem",
+                fontWeight: "600",
+                padding: "6px 12px"
               }}
             >
-              🔗 Share
+              🔗 <span className="d-none d-md-inline">Share</span>
             </button>
           )}
 
@@ -1081,15 +1133,16 @@ if (ctxHeader) {
             className="btn btn-sm d-flex align-items-center gap-1 position-relative"
             onClick={handleOpenInbox}
             style={{
-              background: "rgba(99, 102, 241, 0.15)",
+              background: "rgba(99, 102, 241, 0.12)",
               color: "#818cf8",
-              border: "1px solid rgba(99, 102, 241, 0.3)",
+              border: "1px solid rgba(99, 102, 241, 0.25)",
               borderRadius: "10px",
-              fontSize: "0.75rem",
-              fontWeight: "600"
+              fontSize: "0.78rem",
+              fontWeight: "600",
+              padding: "6px 12px"
             }}
           >
-            💬 {feeds.length > 0 ? `${feeds.length} messages` : "Messages"}
+            💬 <span className="d-none d-md-inline">{feeds.length > 0 ? `${feeds.length} msgs` : "Inbox"}</span>
             {unreadFeeds > 0 && (
               <span
                 className="position-absolute top-0 start-100 translate-middle badge rounded-pill"
@@ -1099,8 +1152,128 @@ if (ctxHeader) {
               </span>
             )}
           </button>
+
+          {/* User Profile Pill with Dropdown */}
+          <div className="position-relative ms-1">
+            {(() => {
+              const getProvider = () => {
+                if (user?.provider) return user.provider;
+                const email = (user?.username || "").toLowerCase();
+                if (email.includes("google") || email.endsWith("@gmail.com")) return "google";
+                if (email.includes("facebook") || email.endsWith("@facebook.com") || email.includes("fb_")) return "facebook";
+                return "standard";
+              };
+              const provider = getProvider();
+              return (
+                <div
+                  className="header-profile-pill cursor-pointer"
+                  onClick={() => setShowProfileDropdown(!showProfileDropdown)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    padding: "5px 12px",
+                    background: "rgba(255, 255, 255, 0.05)",
+                    border: "1px solid rgba(255, 255, 255, 0.12)",
+                    borderRadius: "9999px",
+                    fontSize: "0.82rem",
+                    fontWeight: 600,
+                    color: "#f8fafc"
+                  }}
+                >
+                  <div style={{
+                    width: "22px",
+                    height: "22px",
+                    borderRadius: "50%",
+                    background: "rgba(255,255,255,0.1)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "12px"
+                  }}>
+                    {provider === "google" && (
+                      <svg viewBox="0 0 24 24" style={{ width: '13px', height: '13px' }}>
+                        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+                        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+                        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05" />
+                        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335" />
+                      </svg>
+                    )}
+                    {provider === "facebook" && (
+                      <svg viewBox="0 0 24 24" style={{ width: '13px', height: '13px' }}>
+                        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" fill="#1877F2" />
+                      </svg>
+                    )}
+                    {provider === "standard" && "👤"}
+                  </div>
+                  <span className="text-truncate d-none d-sm-inline" style={{ maxWidth: '110px' }} title={user?.username}>
+                    {user?.username}
+                  </span>
+                  <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#10b981", boxShadow: "0 0 6px #10b981" }}></span>
+                </div>
+              );
+            })()}
+
+            {showProfileDropdown && (
+              <>
+                <div className="position-fixed top-0 start-0 w-100 h-100" style={{ zIndex: 998 }} onClick={() => setShowProfileDropdown(false)} />
+                <div
+                  className="position-absolute end-0 top-100 mt-2 p-3 shadow-lg text-light"
+                  style={{
+                    minWidth: "220px",
+                    background: "rgba(18, 17, 28, 0.95)",
+                    backdropFilter: "blur(20px)",
+                    border: "1px solid rgba(255, 255, 255, 0.15)",
+                    borderRadius: "14px",
+                    zIndex: 999
+                  }}
+                >
+                  <div className="fw-bold text-white mb-1">{user?.username}</div>
+                  <div className="small text-info mb-3 text-uppercase" style={{ fontSize: "0.72rem", letterSpacing: "0.5px" }}>
+                    Role: {user?.role}
+                  </div>
+                  
+                  <div className="d-flex flex-column gap-2 border-top border-secondary border-opacity-25 pt-2">
+                    <button
+                      className="btn btn-sm btn-outline-light text-start py-1.5"
+                      onClick={() => {
+                        setShowProfileDropdown(false);
+                        navigate("/context");
+                      }}
+                      style={{ fontSize: "0.82rem" }}
+                    >
+                      🧠 AI Memory & Context
+                    </button>
+                    {user?.role === "admin" && (
+                      <button
+                        className="btn btn-sm btn-outline-info text-start py-1.5"
+                        onClick={() => {
+                          setShowProfileDropdown(false);
+                          navigate("/admin/dashboard");
+                        }}
+                        style={{ fontSize: "0.82rem" }}
+                      >
+                        📊 Admin Dashboard
+                      </button>
+                    )}
+                    <button
+                      className="btn btn-sm btn-danger py-1.5 mt-1"
+                      onClick={() => {
+                        setShowProfileDropdown(false);
+                        onLogout();
+                      }}
+                      style={{ fontSize: "0.82rem" }}
+                    >
+                      Logout
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
+
 
       {/* Share fallback toast */}
       {shareToast && (
@@ -1179,304 +1352,303 @@ if (ctxHeader) {
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="flex-grow-1 overflow-auto p-3"
+        className="flex-grow-1 overflow-auto p-3 custom-scrollbar"
+        style={{ width: "100%" }}
       >
-
-        {!conversationId && messages.length === 0 ? (
-           <div className="h-100 d-flex flex-column justify-content-end p-3 pb-0" style={{ zIndex: 10 }}>
-                {/* Empty sleek center space */}
-                <div className="flex-grow-1"></div>
-
-                {/* Bottom ChatGPT Layout Actions */}
-                <div className="d-flex flex-column gap-3 mb-2" style={{ maxWidth: "700px", alignSelf: "center", width: "100%" }}>
-                  <div 
-                    className="d-flex align-items-center justify-content-between p-3 rounded-4 cursor-pointer"
-                    style={{ background: "transparent", color: "#e2e8f0", transition: "background 0.2s" }}
-                    onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.05)"}
-                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                    onClick={() => { setInput("Can you generate an image of "); document.querySelector('.chat-input')?.focus(); }}
-                  >
-                    <div className="d-flex align-items-center gap-3">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                      <span style={{ fontSize: "1rem" }}>Create an image</span>
+        <div style={{ maxWidth: "860px", width: "100%", margin: "0 auto", height: (!conversationId && messages.length === 0) ? "100%" : "auto" }}>
+          {!conversationId && messages.length === 0 ? (
+             <div className="h-100 d-flex flex-column justify-content-center align-items-center p-3 text-center" style={{ zIndex: 10 }}>
+                  {/* Center Brand Header */}
+                  <div className="mb-4 d-flex flex-column align-items-center">
+                    <div style={{ width: "64px", height: "64px", borderRadius: "20px", background: "linear-gradient(135deg, #00d2ff, #3b82f6, #d900ff)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "32px", boxShadow: "0 12px 36px rgba(0, 210, 255, 0.35)", marginBottom: "18px" }}>
+                      ⚡
                     </div>
+                    <h2 className="fw-bold text-white mb-2" style={{ letterSpacing: "-0.5px" }}>
+                      What can I help you solve today?
+                    </h2>
+                    <p className="text-light-50" style={{ maxWidth: "520px", fontSize: "0.95rem", lineHeight: "1.5" }}>
+                      Powered by high-throughput multi-model intelligence, RAG document knowledge, and real-time reasoning.
+                    </p>
                   </div>
 
-                  <div 
-                    className="d-flex align-items-center justify-content-between p-3 rounded-4 cursor-pointer"
-                    style={{ background: "transparent", color: "#e2e8f0", transition: "background 0.2s" }}
-                    onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.05)"}
-                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                    onClick={() => { setInput("Please help me write or edit a text about "); document.querySelector('.chat-input')?.focus(); }}
-                  >
-                    <div className="d-flex align-items-center gap-3">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                      <span style={{ fontSize: "1rem" }}>Write or edit</span>
+                  {/* 4 Quick Prompt Cards Grid */}
+                  <div className="empty-chat-starter-grid w-100 mb-4">
+                    <div 
+                      className="empty-starter-card"
+                      onClick={() => { setInput("Can you break down and analyze this complex topic: "); }}
+                    >
+                      <div className="empty-starter-icon">🧠</div>
+                      <div className="empty-starter-title">Deep Reasoning</div>
+                      <div className="empty-starter-desc">Multi-step logical breakdown & structured explanation.</div>
                     </div>
-                  </div>
 
-                  <div 
-                    className="d-flex align-items-center justify-content-between p-3 rounded-4 cursor-pointer"
-                    style={{ background: "transparent", color: "#e2e8f0", transition: "background 0.2s" }}
-                    onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.05)"}
-                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                    onClick={() => { setInput("Search the web for "); document.querySelector('.chat-input')?.focus(); }}
-                  >
-                    <div className="d-flex align-items-center gap-3">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-                      <span style={{ fontSize: "1rem" }}>Search the web</span>
+                    <div 
+                      className="empty-starter-card"
+                      onClick={() => { setInput("Please help me review and optimize this code architecture: "); }}
+                    >
+                      <div className="empty-starter-icon">💻</div>
+                      <div className="empty-starter-title">Code & Architecture</div>
+                      <div className="empty-starter-desc">Generate, debug, or refactor clean modern software code.</div>
+                    </div>
+
+                    <div 
+                      className="empty-starter-card"
+                      onClick={() => { document.getElementById('uploadFile')?.click(); }}
+                    >
+                      <div className="empty-starter-icon">📄</div>
+                      <div className="empty-starter-title">Analyze Documents</div>
+                      <div className="empty-starter-desc">Upload PDF, Word, or text files for instant contextual Q&A.</div>
+                    </div>
+
+                    <div 
+                      className="empty-starter-card"
+                      onClick={() => { setInput("Summarize key insights and create an action plan for: "); }}
+                    >
+                      <div className="empty-starter-icon">📊</div>
+                      <div className="empty-starter-title">Summaries & Action Plans</div>
+                      <div className="empty-starter-desc">Turn extensive data into clear bullet points and next steps.</div>
                     </div>
                   </div>
+             </div>
+          ) : (
+            <>
+              {loadingOld && (
+                <div className="text-center text-muted mb-2">
+                  Loading older messages...
                 </div>
-           </div>
-        ) : (
-          <>
-            {loadingOld && (
-              <div className="text-center text-muted mb-2">
-                Loading older messages...
-              </div>
-            )}
-    
-            {messages.map((m, i) => {
-              const msgKey = m.id || i;
-              return (
-              <div key={i} className={`position-relative msg-row ${m.role === "assistant" ? "ai-message" : ""}`}>
-                <MessageBubble role={m.role} text={m.content} isStreaming={m.isStreaming} />
+              )}
+      
+              {messages.map((m, i) => {
+                const msgKey = m.id || i;
+                return (
+                <div key={i} className={`position-relative msg-row ${m.role === "assistant" ? "ai-message" : ""}`}>
+                  <MessageBubble role={m.role} text={m.content} isStreaming={m.isStreaming} />
 
-                {/* =============================================
-                    ChatGPT-style action bar — shows on hover
-                    ============================================= */}
-                {m.role === "assistant" && !m.isStreaming && m.content && (
-                  <div className="msg-action-bar d-flex align-items-center gap-1 ms-2 mb-3">
+                  {/* ChatGPT-style action bar — shows on hover */}
+                  {m.role === "assistant" && !m.isStreaming && m.content && (
+                    <div className="msg-action-bar d-flex align-items-center gap-1 ms-2 mb-3">
 
-                    {/* Copy */}
-                    <button
-                      className="msg-icon-btn"
-                      title="Copy"
-                      onClick={() => {
-                        navigator.clipboard.writeText(m.content);
-                        setCopiedId(msgKey);
-                        setTimeout(() => setCopiedId(null), 1800);
-                      }}
-                    >
-                      {copiedId === msgKey ? (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                      ) : (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                      )}
-                    </button>
-
-                    {/* Thumbs Up */}
-                    <button
-                      className={`msg-icon-btn ${thumbsVal[msgKey] === 'up' ? 'msg-icon-btn--active-good' : ''}`}
-                      title="Good response"
-                      onClick={() => setThumbsVal(p => ({ ...p, [msgKey]: p[msgKey] === 'up' ? null : 'up' }))}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill={thumbsVal[msgKey] === 'up' ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
-                    </button>
-
-                    {/* Thumbs Down */}
-                    <button
-                      className={`msg-icon-btn ${thumbsVal[msgKey] === 'down' ? 'msg-icon-btn--active-bad' : ''}`}
-                      title="Bad response"
-                      onClick={() => setThumbsVal(p => ({ ...p, [msgKey]: p[msgKey] === 'down' ? null : 'down' }))}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill={thumbsVal[msgKey] === 'down' ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>
-                    </button>
-
-                    {/* Share — opens the ChatGPT-style share modal */}
-                    <button
-                      className="msg-icon-btn"
-                      title="Share"
-                      onClick={async () => {
-                        let shareUrl = window.location.href;
-                        try {
-                          const res = await generateShareLink(conversationId);
-                          if (res?.share_url) shareUrl = res.share_url;
-                        } catch(e) { /* use current URL as fallback */ }
-                        setShareModalMsg({ content: m.content, shareUrl });
-                        setShareModalCopied(false);
-                        setShowShareModal(true);
-                      }}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
-                    </button>
-
-                    {/* Regenerate */}
-                    <button
-                      className="msg-icon-btn"
-                      title="Regenerate response"
-                      onClick={() => {
-                        // find last user message and resend it
-                        const lastUser = [...messages].reverse().find(x => x.role === 'user');
-                        if (lastUser) { setInput(lastUser.content); }
-                      }}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                    </button>
-
-                    {/* ··· More menu */}
-                    <div className="position-relative">
+                      {/* Copy */}
                       <button
                         className="msg-icon-btn"
-                        title="More options"
+                        title="Copy"
                         onClick={() => {
-                          setShowMoreMenu(prev => prev === msgKey ? null : msgKey);
-                          setShowVoiceSubMenu(false);
+                          navigator.clipboard.writeText(m.content);
+                          setCopiedId(msgKey);
+                          setTimeout(() => setCopiedId(null), 1800);
                         }}
                       >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
+                        {copiedId === msgKey ? (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                        ) : (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                        )}
                       </button>
 
-                      {showMoreMenu === msgKey && (
-                        <>
-                          {/* Backdrop */}
-                          <div
-                            onClick={() => { setShowMoreMenu(null); setShowVoiceSubMenu(false); }}
-                            style={{ position:"fixed", inset:0, zIndex:1199 }}
-                          />
+                      {/* Thumbs Up */}
+                      <button
+                        className={`msg-icon-btn ${thumbsVal[msgKey] === 'up' ? 'msg-icon-btn--active-good' : ''}`}
+                        title="Good response"
+                        onClick={() => setThumbsVal(p => ({ ...p, [msgKey]: p[msgKey] === 'up' ? null : 'up' }))}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill={thumbsVal[msgKey] === 'up' ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+                      </button>
 
-                          {/* Popup card — ChatGPT style */}
-                          <div style={{
-                            position:"absolute", bottom:"calc(100% + 8px)", left:0,
-                            background:"rgba(18,18,28,0.98)",
-                            border:"1px solid rgba(255,255,255,0.1)",
-                            borderRadius:"14px",
-                            padding:"6px",
-                            zIndex:1200,
-                            minWidth:"210px",
-                            boxShadow:"0 16px 48px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)",
-                            backdropFilter:"blur(16px)"
-                          }}>
+                      {/* Thumbs Down */}
+                      <button
+                        className={`msg-icon-btn ${thumbsVal[msgKey] === 'down' ? 'msg-icon-btn--active-bad' : ''}`}
+                        title="Bad response"
+                        onClick={() => setThumbsVal(p => ({ ...p, [msgKey]: p[msgKey] === 'down' ? null : 'down' }))}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill={thumbsVal[msgKey] === 'down' ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>
+                      </button>
 
-                            {/* Timestamp label */}
-                            {/*<div style={{ fontSize:"0.68rem", color:"#475569", padding:"4px 12px 8px", letterSpacing:"0.3px" }}>
-                              {new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' })}
-                            </div>*/}
+                      {/* Share — opens the ChatGPT-style share modal */}
+                      <button
+                        className="msg-icon-btn"
+                        title="Share"
+                        onClick={async () => {
+                          let shareUrl = window.location.href;
+                          try {
+                            const res = await generateShareLink(conversationId);
+                            if (res?.share_url) shareUrl = res.share_url;
+                          } catch(e) { /* use current URL as fallback */ }
+                          setShareModalMsg({ content: m.content, shareUrl });
+                          setShareModalCopied(false);
+                          setShowShareModal(true);
+                        }}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                      </button>
 
-                            {/* View sources */}
-                            <button
-                              className="more-menu-item"
-                              onClick={() => {
-                                navigate('/context');
-                                setShowMoreMenu(null);
-                              }}
-                            >
-                              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-                              <span>View sources</span>
-                            </button>
+                      {/* Regenerate */}
+                      <button
+                        className="msg-icon-btn"
+                        title="Regenerate response"
+                        onClick={() => {
+                          const lastUser = [...messages].reverse().find(x => x.role === 'user');
+                          if (lastUser) { setInput(lastUser.content); }
+                        }}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                      </button>
 
-                            {/* Branch in new chat */}
-                            <button
-                              className="more-menu-item"
-                              onClick={async () => {
-                                try {
-                                  const snippet = m.content.slice(0, 60);
-                                  const newConv = await createConversation({ user_id: user.id, title: `Branch: ${snippet}` });
-                                  if (newConv?.id) {
-                                    if (onConversationCreated) onConversationCreated(newConv.id);
-                                  }
-                                } catch(e) { console.log(e); }
-                                setShowMoreMenu(null);
-                              }}
-                            >
-                              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
-                              <span>Branch in new chat</span>
-                            </button>
+                      {/* ··· More menu */}
+                      <div className="position-relative">
+                        <button
+                          className="msg-icon-btn"
+                          title="More options"
+                          onClick={() => {
+                            setShowMoreMenu(prev => prev === msgKey ? null : msgKey);
+                            setShowVoiceSubMenu(false);
+                          }}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+                        </button>
 
-                            <div style={{ height:"1px", background:"rgba(255,255,255,0.07)", margin:"4px 8px" }} />
+                        {showMoreMenu === msgKey && (
+                          <>
+                            {/* Backdrop */}
+                            <div
+                              onClick={() => { setShowMoreMenu(null); setShowVoiceSubMenu(false); }}
+                              style={{ position:"fixed", inset:0, zIndex:1199 }}
+                            />
 
-                            {/* Read aloud — expands voice sub-menu */}
-                            <button
-                              className="more-menu-item"
-                              onClick={() => setShowVoiceSubMenu(p => !p)}
-                            >
-                              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
-                              <span>
-                                {activeSpeakId === msgKey ? "⏹ Stop reading" : "Read aloud"}
-                                {voiceMode !== "default" && (
-                                  <span style={{ fontSize:"0.7rem", color:"#64748b", marginLeft:"6px" }}>
-                                    ({voiceMode === "male_deep" ? "👨 Male" : voiceMode === "female_young" ? "👩 Young" : "👩 Calm"})
-                                  </span>
-                                )}
-                              </span>
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft:"auto", transform: showVoiceSubMenu ? "rotate(180deg)":"rotate(0deg)", transition:"transform 0.2s" }}><polyline points="6 9 12 15 18 9"/></svg>
-                            </button>
-
-                            {/* Read aloud action row */}
-                            <div style={{ display:"flex", gap:"6px", padding:"4px 8px 2px", justifyContent:"space-between" }}>
+                            {/* Popup card — ChatGPT style */}
+                            <div style={{
+                              position:"absolute", bottom:"calc(100% + 8px)", left:0,
+                              background:"rgba(18,18,28,0.98)",
+                              border:"1px solid rgba(255,255,255,0.1)",
+                              borderRadius:"14px",
+                              padding:"6px",
+                              zIndex:1200,
+                              minWidth:"210px",
+                              boxShadow:"0 16px 48px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)",
+                              backdropFilter:"blur(16px)"
+                            }}>
+                              {/* View sources */}
                               <button
-                                className="read-aloud-play-btn"
+                                className="more-menu-item"
                                 onClick={() => {
+                                  navigate('/context');
                                   setShowMoreMenu(null);
-                                  toggleSpeakText(msgKey, m.content);
                                 }}
                               >
-                                {activeSpeakId === msgKey
-                                  ? <><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> Stop</>
-                                  : <><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg> Play</>}
+                                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                                <span>View sources</span>
                               </button>
-                            </div>
 
-                            {/* Voice sub-menu */}
-                            {showVoiceSubMenu && (
-                              <div style={{ padding:"4px 6px 4px" }}>
-                                {[
-                                  { id: "default",       icon: "🔊", label: "Default",        sub: "System voice" },
-                                  { id: "female_young",  icon: "👩", label: "Female · Young", sub: "Clear & energetic" },
-                                  { id: "female_mature", icon: "👩", label: "Female · Calm",  sub: "Mature & steady" },
-                                  { id: "male_deep",     icon: "👨", label: "Male · Deep",    sub: "Deep & authoritative" },
-                                ].map(opt => (
-                                  <div
-                                    key={opt.id}
-                                    onClick={() => {
-                                      setVoiceMode(opt.id);
-                                      voiceModeRef.current = opt.id;
-                                      localStorage.setItem("voice_mode", opt.id);
-                                      setShowVoiceSubMenu(false);
-                                    }}
-                                    style={{
-                                      display:"flex", alignItems:"center", gap:"10px",
-                                      padding:"7px 10px", borderRadius:"8px", cursor:"pointer",
-                                      background: voiceMode === opt.id ? "rgba(139,92,246,0.15)" : "transparent",
-                                      border: voiceMode === opt.id ? "1px solid rgba(139,92,246,0.35)" : "1px solid transparent",
-                                      marginBottom:"2px"
-                                    }}
-                                  >
-                                    <span style={{ fontSize:"1rem" }}>{opt.icon}</span>
-                                    <div>
-                                      <div style={{ fontSize:"0.8rem", fontWeight:600, color: voiceMode === opt.id ? "#a78bfa" : "#e2e8f0" }}>{opt.label}</div>
-                                      <div style={{ fontSize:"0.68rem", color:"#475569" }}>{opt.sub}</div>
-                                    </div>
-                                    {voiceMode === opt.id && (
-                                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft:"auto" }}><polyline points="20 6 9 17 4 12"/></svg>
-                                    )}
-                                  </div>
-                                ))}
+                              {/* Branch in new chat */}
+                              <button
+                                className="more-menu-item"
+                                onClick={async () => {
+                                  try {
+                                    const snippet = m.content.slice(0, 60);
+                                    const newConv = await createConversation({ user_id: user.id, title: `Branch: ${snippet}` });
+                                    if (newConv?.id) {
+                                      if (onConversationCreated) onConversationCreated(newConv.id);
+                                    }
+                                  } catch(e) { console.log(e); }
+                                  setShowMoreMenu(null);
+                                }}
+                              >
+                                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+                                <span>Branch in new chat</span>
+                              </button>
+
+                              <div style={{ height:"1px", background:"rgba(255,255,255,0.07)", margin:"4px 8px" }} />
+
+                              {/* Read aloud */}
+                              <button
+                                className="more-menu-item"
+                                onClick={() => setShowVoiceSubMenu(p => !p)}
+                              >
+                                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                                <span>
+                                  {activeSpeakId === msgKey ? "⏹ Stop reading" : "Read aloud"}
+                                  {voiceMode !== "default" && (
+                                    <span style={{ fontSize:"0.7rem", color:"#64748b", marginLeft:"6px" }}>
+                                      ({voiceMode === "male_deep" ? "👨 Male" : voiceMode === "female_young" ? "👩 Young" : "👩 Calm"})
+                                    </span>
+                                  )}
+                                </span>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft:"auto", transform: showVoiceSubMenu ? "rotate(180deg)":"rotate(0deg)", transition:"transform 0.2s" }}><polyline points="6 9 12 15 18 9"/></svg>
+                              </button>
+
+                              {/* Read aloud action row */}
+                              <div style={{ display:"flex", gap:"6px", padding:"4px 8px 2px", justifyContent:"space-between" }}>
+                                <button
+                                  className="read-aloud-play-btn"
+                                  onClick={() => {
+                                    setShowMoreMenu(null);
+                                    toggleSpeakText(msgKey, m.content);
+                                  }}
+                                >
+                                  {activeSpeakId === msgKey
+                                    ? <><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> Stop</>
+                                    : <><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg> Play</>}
+                                </button>
                               </div>
-                            )}
 
-                          </div>
-                        </>
-                      )}
+                              {/* Voice sub-menu */}
+                              {showVoiceSubMenu && (
+                                <div style={{ padding:"4px 6px 4px" }}>
+                                  {[
+                                    { id: "default",       icon: "🔊", label: "Default",        sub: "System voice" },
+                                    { id: "female_young",  icon: "👩", label: "Female · Young", sub: "Clear & energetic" },
+                                    { id: "female_mature", icon: "👩", label: "Female · Calm",  sub: "Mature & steady" },
+                                    { id: "male_deep",     icon: "👨", label: "Male · Deep",    sub: "Deep & authoritative" },
+                                  ].map(opt => (
+                                    <div
+                                      key={opt.id}
+                                      onClick={() => {
+                                        setVoiceMode(opt.id);
+                                        voiceModeRef.current = opt.id;
+                                        localStorage.setItem("voice_mode", opt.id);
+                                        setShowVoiceSubMenu(false);
+                                      }}
+                                      style={{
+                                        display:"flex", alignItems:"center", gap:"10px",
+                                        padding:"7px 10px", borderRadius:"8px", cursor:"pointer",
+                                        background: voiceMode === opt.id ? "rgba(139,92,246,0.15)" : "transparent",
+                                        border: voiceMode === opt.id ? "1px solid rgba(139,92,246,0.35)" : "1px solid transparent",
+                                        marginBottom:"2px"
+                                      }}
+                                    >
+                                      <span style={{ fontSize:"1rem" }}>{opt.icon}</span>
+                                      <div>
+                                        <div style={{ fontSize:"0.8rem", fontWeight:600, color: voiceMode === opt.id ? "#a78bfa" : "#e2e8f0" }}>{opt.label}</div>
+                                        <div style={{ fontSize:"0.68rem", color:"#475569" }}>{opt.sub}</div>
+                                      </div>
+                                      {voiceMode === opt.id && (
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft:"auto" }}><polyline points="20 6 9 17 4 12"/></svg>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                            </div>
+                          </>
+                        )}
+                      </div>
+
                     </div>
+                  )}
+                </div>
+              );
+              })}
+      
+              {isStreamingRef.current && messages.length > 0 && messages[messages.length - 1].role === "assistant" && !messages[messages.length - 1].content && (
+                <div className="typing-indicator mt-2 mb-3 ms-2">
+                  <span></span><span></span><span></span>
+                </div>
+              )}
+            </>
+          )}
 
-                  </div>
-                )}
-              </div>
-            );
-            })}
-    
-            {isStreamingRef.current && messages.length > 0 && messages[messages.length - 1].role === "assistant" && !messages[messages.length - 1].content && (
-              <div className="typing-indicator mt-2 mb-3 ms-2">
-                <span></span><span></span><span></span>
-              </div>
-            )}
-          </>
-        )}
-
-        <div ref={bottomRef} />
-
+          <div ref={bottomRef} />
+        </div>
       </div>
 
       {isUploading && (
@@ -1486,33 +1658,23 @@ if (ctxHeader) {
         </div>
       )}
 
-      <div className="d-flex flex-column align-items-center w-100 px-2 pb-3 position-relative" style={{ background: "transparent", zIndex: 100 }}>
+      {/* Floating Bottom Input Dock */}
+      <div className="d-flex flex-column align-items-center w-100 px-3 pb-3 position-relative" style={{ background: "transparent", zIndex: 90 }}>
         
-        {messages.length > 0 && (
-           <div className="d-flex justify-content-end w-100 mb-2" style={{ maxWidth: "768px" }}>
-              <button
-                className="btn btn-sm btn-outline-info d-flex align-items-center gap-1 rounded-pill"
-                onClick={exportPdfReport}
-                title="Export chat to PDF"
-                style={{ fontSize: "0.75rem", background: "rgba(6,182,212,0.1)", backdropFilter: "blur(10px)", border: "1px solid rgba(6,182,212,0.2)" }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-                PDF Report
-              </button>
-           </div>
-        )}
-
         <div 
-          className="d-flex align-items-end gap-1 p-1 w-100" 
+          className="d-flex align-items-end gap-2 p-2 w-100 input-dock-container" 
           style={{ 
-            maxWidth: "768px", 
-            background: "rgba(30, 30, 35, 0.8)", 
-            borderRadius: "26px", 
-            border: "1px solid rgba(255,255,255,0.08)", 
-            backdropFilter: "blur(20px)",
-            boxShadow: "0 10px 30px rgba(0,0,0,0.3)" 
+            maxWidth: "840px", 
+            background: "rgba(16, 14, 28, 0.92)", 
+            borderRadius: "20px", 
+            border: "1px solid rgba(255, 255, 255, 0.12)", 
+            backdropFilter: "blur(24px)",
+            WebkitBackdropFilter: "blur(24px)",
+            boxShadow: "0 20px 50px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05)",
+            transition: "border-color 0.2s ease, box-shadow 0.2s ease"
           }}
         >
+          {/* Action Icon Buttons */}
           <div className="d-flex align-items-center gap-1 pb-1 ps-1">
             <input
               type="file"
@@ -1521,67 +1683,114 @@ if (ctxHeader) {
               style={{ display: "none" }}
               onChange={handleUpload}
             />
-            <label htmlFor="uploadFile" className="btn btn-sm btn-link mb-0 rounded-circle text-muted d-flex align-items-center justify-content-center cursor-pointer" style={{ width: "40px", height: "40px", textDecoration: "none" }} title="Upload File">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+            <label 
+              htmlFor="uploadFile" 
+              className="btn btn-sm btn-link mb-0 rounded-circle text-muted d-flex align-items-center justify-content-center cursor-pointer p-0" 
+              style={{ width: "36px", height: "36px", textDecoration: "none", color: "#94a3b8" }} 
+              title="Attach document or image for RAG analysis"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+              </svg>
             </label>
 
             <button
-              className={`btn btn-sm btn-link mb-0 rounded-circle d-flex align-items-center justify-content-center ${isRecording ? "text-danger" : "text-muted"}`}
+              className={`btn btn-sm btn-link mb-0 rounded-circle d-flex align-items-center justify-content-center p-0 ${isRecording ? "text-danger" : "text-muted"}`}
               onClick={toggleRecording}
-              title={isRecording ? "Listening..." : "Dictate with voice"}
-              style={{ width: "40px", height: "40px", textDecoration: "none" }}
+              title={isRecording ? "Listening to your voice..." : "Voice input (speech-to-text)"}
+              style={{ width: "36px", height: "36px", textDecoration: "none", color: isRecording ? "#ef4444" : "#94a3b8" }}
             >
               {isRecording ? (
                 <span className="spinner-grow spinner-grow-sm text-danger" role="status" aria-hidden="true" style={{ width: "16px", height: "16px" }}></span>
               ) : (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                  <line x1="12" y1="19" x2="12" y2="23"/>
+                  <line x1="8" y1="23" x2="16" y2="23"/>
+                </svg>
               )}
             </button>
 
             <button
-              className="btn btn-sm btn-link mb-0 rounded-circle text-muted d-flex align-items-center justify-content-center"
+              className="btn btn-sm btn-link mb-0 rounded-circle text-muted d-flex align-items-center justify-content-center p-0"
               onClick={() => setShowPromptsModal(true)}
               title="Prompt Library"
-              style={{ width: "40px", height: "40px", textDecoration: "none" }}
+              style={{ width: "36px", height: "36px", textDecoration: "none", color: "#94a3b8" }}
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+              </svg>
             </button>
+
+            {messages.length > 0 && (
+              <button
+                className="btn btn-sm btn-link mb-0 rounded-circle text-muted d-flex align-items-center justify-content-center p-0"
+                onClick={exportPdfReport}
+                title="Export conversation to PDF"
+                style={{ width: "36px", height: "36px", textDecoration: "none", color: "#38bdf8" }}
+              >
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                  <line x1="16" y1="13" x2="8" y2="13"/>
+                  <line x1="16" y1="17" x2="8" y2="17"/>
+                </svg>
+              </button>
+            )}
           </div>
 
           <textarea
             className="form-control flex-grow-1 border-0 bg-transparent text-light shadow-none mb-0 py-2 ps-2"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask anything"
+            placeholder="Ask RELEX AI anything... (Shift + Enter for new line)"
             onKeyDown={handleKeyDown}
             rows={1}
-            style={{ resize: "none", fontSize: "0.98rem", lineHeight: "1.5", maxHeight: "150px" }}
+            style={{ resize: "none", fontSize: "0.95rem", lineHeight: "1.5", maxHeight: "160px", color: "#f8fafc" }}
           />
 
           <div className="pb-1 pe-1">
             {isGenerating ? (
               <button
-                className="btn btn-danger rounded-circle p-0 d-flex align-items-center justify-content-center"
-                style={{ width: "40px", height: "40px", flexShrink: 0 }}
+                className="btn btn-danger rounded-circle p-0 d-flex align-items-center justify-content-center shadow"
+                style={{ width: "38px", height: "38px", flexShrink: 0 }}
                 onClick={handleStop}
                 title="Stop Generating"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="3" ry="3"/></svg>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" ry="2"/></svg>
               </button>
             ) : (
               <button
-                className="btn border-0 rounded-circle p-0 d-flex align-items-center justify-content-center"
-                style={{ width: "40px", height: "40px", flexShrink: 0, background: input.trim() ? "#ffffff" : "rgba(255,255,255,0.1)", transition: "background 0.2s, transform 0.1s" }}
+                className="btn rounded-circle p-0 d-flex align-items-center justify-content-center"
+                style={{
+                  width: "38px",
+                  height: "38px",
+                  flexShrink: 0,
+                  background: input.trim() ? "linear-gradient(135deg, #00d2ff 0%, #3b82f6 50%, #d900ff 100%)" : "rgba(255,255,255,0.08)",
+                  border: input.trim() ? "none" : "1px solid rgba(255,255,255,0.05)",
+                  boxShadow: input.trim() ? "0 4px 16px rgba(0, 210, 255, 0.4)" : "none",
+                  transition: "all 0.2s ease"
+                }}
                 onClick={send}
                 disabled={!input.trim()}
                 title="Send Message"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill={input.trim() ? "#000000" : "#a1a1aa"} style={{ marginLeft: "2px" }}><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={input.trim() ? "#ffffff" : "#64748b"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: "2px" }}>
+                  <line x1="22" y1="2" x2="11" y2="13"/>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                </svg>
               </button>
             )}
           </div>
         </div>
+
+        <div className="text-center text-muted mt-2" style={{ fontSize: "0.72rem", opacity: 0.7 }}>
+          RELEX AI Studio · Multi-Model Intelligence & RAG · Verify critical information
+        </div>
       </div>
+
 
       {/* Prompts Modal - Fully inline styled */}
       {showPromptsModal && (

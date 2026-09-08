@@ -1,58 +1,77 @@
 import os
 import json
+import hashlib
 import numpy as np
 
 # =========================================================
-# GROQ EMBEDDING SERVICE
-# Uses Groq's free nomic-embed-text-v1.5 model
-# Replaces heavy sentence-transformers + torch (2GB RAM)
+# EMBEDDING SERVICE
+# Primary: Groq nomic-embed-text-v1.5 / OpenAI compatible embedding
+# Local Fallback: Normalized 384-dim subword feature hash vector
 # =========================================================
 
-try:
-    from groq import Groq
-    _client = Groq(api_key=os.getenv("GROQ_API_KEY", ""))
-    EMBEDDING_MODEL = "nomic-embed-text-v1.5"
-    USE_GROQ_EMBEDDINGS = True
-    print("✅ Groq embedding service ready")
-except Exception as e:
-    _client = None
-    USE_GROQ_EMBEDDINGS = False
-    print(f"⚠️ Groq embedding unavailable: {e}")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+_client = None
+EMBEDDING_MODEL = "nomic-embed-text-v1.5"
 
+if GROQ_API_KEY:
+    try:
+        from groq import Groq
+        _client = Groq(api_key=GROQ_API_KEY)
+    except Exception as e:
+        print("Groq client init error:", e)
 
 def _prepare_text(text: str) -> str:
     if not text:
         return ""
     text = text.strip()
-    if len(text) > 2000:
-        text = text[:2000]
-    return text
+    return text[:2000]
 
+def _generate_local_vector(text: str, dim: int = 384) -> list:
+    """Deterministic, normalized subword feature hashing vector (fallback)."""
+    vec = np.zeros(dim, dtype=np.float32)
+    words = text.lower().split()
+    if not words:
+        return vec.tolist()
 
-def create_embedding(text: str):
-    """Single text → embedding vector via Groq API"""
+    for word in words:
+        # Word hash
+        h_word = int(hashlib.md5(word.encode('utf-8')).hexdigest(), 16) % dim
+        vec[h_word] += 1.0
+
+        # Character tri-grams
+        for i in range(len(word) - 2):
+            tri = word[i:i+3]
+            h_tri = int(hashlib.md5(tri.encode('utf-8')).hexdigest(), 16) % dim
+            vec[h_tri] += 0.5
+
+    # L2 normalize
+    norm = np.linalg.norm(vec)
+    if norm > 0:
+        vec = vec / norm
+
+    return vec.tolist()
+
+def create_embedding(text: str) -> list:
+    """Single text → embedding vector (Groq API or local semantic hash fallback)."""
     text = _prepare_text(text)
     if not text:
-        return None
+        return _generate_local_vector("empty", dim=384)
 
-    if not USE_GROQ_EMBEDDINGS or _client is None:
-        # Fallback: return a random vector (FAISS won't match anything useful)
-        print("⚠️ No embedding model available — returning None")
-        return None
+    if _client is not None:
+        try:
+            response = _client.embeddings.create(
+                model=EMBEDDING_MODEL,
+                input=text,
+            )
+            return response.data[0].embedding
+        except Exception as e:
+            pass
 
-    try:
-        response = _client.embeddings.create(
-            model=EMBEDDING_MODEL,
-            input=text,
-        )
-        return response.data[0].embedding
-    except Exception as e:
-        print(f"Groq embedding error: {e}")
-        return None
+    # Resilient local fallback
+    return _generate_local_vector(text, dim=384)
 
-
-def create_embeddings_batch(texts: list):
-    """Batch embed multiple texts"""
+def create_embeddings_batch(texts: list) -> list:
+    """Batch embed multiple texts."""
     valid_texts = [_prepare_text(t) for t in texts if t and t.strip()]
     if not valid_texts:
         return []

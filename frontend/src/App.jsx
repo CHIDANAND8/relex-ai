@@ -10,6 +10,8 @@ import ContextPage from "./pages/ContextPage";   // ✅ NEW
 import AdminDashboard from "./pages/AdminDashboard";
 import SharedChatPage from "./pages/SharedChatPage";
 
+import { getApiUrl } from "./services/apiClient";
+
 function App() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [toasts, setToasts] = useState([]);
@@ -66,35 +68,54 @@ function App() {
       return;
     }
 
+    let ws = null;
+    let timer = null;
+    let isDisposed = false;
+
     const connectWS = () => {
-      const ws = new WebSocket("ws://localhost:8000/ws/notifications");
+      if (isDisposed) return;
+      try {
+        const base = getApiUrl();
+        const wsUrl = (base.startsWith("https://") ? base.replace("https://", "wss://") : base.replace("http://", "ws://")) + "/ws/notifications";
+        ws = new WebSocket(wsUrl);
 
-      ws.onmessage = (event) => {
-        try {
-          const payload = JSON.parse(event.data);
-          const newToast = {
-            id: Date.now() + Math.random(),
-            message: payload.message,
-            type: payload.type === "USER_SIGNUP" ? "user-signup" : "feed-created"
-          };
-          setToasts((prev) => [...prev, newToast]);
-        } catch (err) {
-          console.error("Payload read error:", err);
+        ws.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data);
+            const newToast = {
+              id: Date.now() + Math.random(),
+              message: payload.message,
+              type: payload.type === "USER_SIGNUP" ? "user-signup" : "feed-created"
+            };
+            setToasts((prev) => [...prev, newToast]);
+          } catch (err) {
+            console.error("Payload read error:", err);
+          }
+        };
+
+        ws.onclose = () => {
+          if (!isDisposed) {
+            timer = setTimeout(connectWS, 5000);
+          }
+        };
+
+        ws.onerror = () => {
+          if (ws) ws.close();
+        };
+      } catch (err) {
+        if (!isDisposed) {
+          timer = setTimeout(connectWS, 5000);
         }
-      };
-
-      ws.onclose = () => {
-        // Try reconnecting in 5s
-        setTimeout(connectWS, 5000);
-      };
-
-      ws.onerror = (err) => {
-        console.error("Notification WS connection error:", err);
-        ws.close();
-      };
+      }
     };
 
     connectWS();
+
+    return () => {
+      isDisposed = true;
+      if (timer) clearTimeout(timer);
+      if (ws) ws.close();
+    };
   }, [isAdmin]);
 
   const dismissToast = (id) => {

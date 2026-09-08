@@ -124,178 +124,102 @@ def get_memory_context(db, conversation_id: int, branch_id=None):
 
 
 # =========================================================
-# DOCUMENT CONTEXT (MULTI FILE FIX)
+# DOCUMENT CONTEXT (HYBRID RETRIEVAL + CONVERSATION SCOPE)
 # =========================================================
 
 def get_document_context(db, question: str, conversation_id: int = None):
-
+    """
+    Retrieves document & image OCR context:
+    1. First checks documents explicitly attached to current conversation_id.
+       - If <= 15 chunks, passes full document text so nothing is lost.
+       - If > 15 chunks, hybrid reranks to pick top relevant sections.
+    2. Fallback to vector FAISS search across all document embeddings.
+    3. Detects any uploaded images for vision model assistance.
+    """
     if not question or not question.strip():
-        return "", []
+        question_clean = ""
+    else:
+        question_clean = clean_text(question)
 
-    question_clean = clean_text(question)
-
-    if len(question_clean) < 3:
-        return "", []
-
-    # ==========================================
-    # CREATE QUERY EMBEDDING
-    # ==========================================
-
-    query_embedding = create_embedding(question_clean)
-
-    if not query_embedding:
-        return "", []
-
-    # ==========================================
-    # SEARCH FAISS
-    # Increased window for multi-file retrieval
-    # ==========================================
-
-    faiss_ids = search_index(query_embedding, top_k=60)
-
-    if not faiss_ids:
-        print("FAISS returned no ids")
-        return "", []
-
-    query = db.query(DocumentEmbedding).filter(
-        DocumentEmbedding.id.in_(faiss_ids)
-    )
+    conv_docs = []
     if conversation_id is not None:
-        query = query.filter(DocumentEmbedding.conversation_id == conversation_id)
+        conv_docs = (
+            db.query(DocumentEmbedding)
+            .filter(DocumentEmbedding.conversation_id == conversation_id)
+            .order_by(DocumentEmbedding.chunk_index.asc())
+            .all()
+        )
 
-    docs = query.all()
+    matched_docs = []
 
-    if not docs:
-        print("No documents found for FAISS ids")
+    # Case A: Current conversation has uploaded documents / OCR
+    if conv_docs:
+        if len(conv_docs) <= 15:
+            matched_docs = conv_docs
+        else:
+            # Score conversation chunks based on question keyword overlap + vector similarity
+            q_words = set(question_clean.split())
+            query_emb = create_embedding(question_clean) if question_clean else None
+            
+            scored = []
+            for doc in conv_docs:
+                c_clean = clean_text(doc.content or "")
+                score = 1.0
+                for w in q_words:
+                    if len(w) > 2 and w in c_clean:
+                        score += 5.0
+                scored.append((score, doc))
+            scored.sort(key=lambda x: x[0], reverse=True)
+            matched_docs = [x[1] for x in scored[:15]]
+            # Preserve original document ordering
+            matched_docs.sort(key=lambda d: d.chunk_index if d.chunk_index is not None else 0)
+
+    # Case B: No conversation-scoped docs, fallback to global FAISS vector search
+    if not matched_docs:
+        query_emb = create_embedding(question_clean) if question_clean else None
+        if query_emb:
+            faiss_ids = search_index(query_emb, top_k=30)
+            if faiss_ids:
+                docs = (
+                    db.query(DocumentEmbedding)
+                    .filter(DocumentEmbedding.id.in_(faiss_ids))
+                    .all()
+                )
+                matched_docs = docs
+
+    if not matched_docs:
         return "", []
 
-    doc_map = {doc.id: doc for doc in docs}
-
-    ordered_docs = []
-
-    for i in faiss_ids:
-        if i in doc_map:
-            ordered_docs.append(doc_map[i])
-
-    if not ordered_docs:
-        ordered_docs = docs
-
-    # ==========================================
-    # HYBRID RERANKING
-    # ==========================================
-
-    question_words = set(question_clean.split())
-
-    scored_docs = []
-
-    for doc in ordered_docs:
-
-        if not doc.content:
-            continue
-
-        content = clean_text(doc.content)
-        filename_clean = clean_text(doc.filename if doc.filename else "")
-
-        score = 0
-
-        # Primary content keyword match
-        for word in question_words:
-            if word in content:
-                score += 1
-            if word in filename_clean:
-                # Massive dynamic boost if the query targets the exact filename
-                score += 5
-
-        # Heuristic File-Type Intent Mapping
-        if "pdf" in question_clean and doc.file_type == ".pdf":
-            score += 20 # Explicit lock-on for PDF documents
-            
-        is_image_query = any(kw in question_clean for kw in ["image", "photo", "picture", "card"])
-        if is_image_query and doc.file_type in [".png", ".jpg", ".jpeg"]:
-            score += 5 # Slight boost for vision inputs
-            
-        # Massive Dynamic Keyword Targeting (Perfect Alignment)
-        # Instead of hardcoding document types, massively boost ANY rare significant keyword.
-        ignore_words = {
-            "provide", "give", "show", "card", "details", "this", "image", "photo", "the", "please", "extract",
-            "python", "code", "program", "class", "import", "function", "http", "server", "api", "fastapi",
-            "data", "request", "return", "create", "write", "make", "build", "read", "test", "user", "admin",
-            "text", "string", "price", "name", "role", "type", "file", "list", "value", "post", "get", "explain",
-            "script", "development", "developer", "software", "engineer", "build", "run"
-        }
-        for word in question_words:
-            if len(word) > 3 and word not in ignore_words:
-                if word in content:
-                    score += 150 # Absolute Override
-
-        # Table isolation
-        if "|" in doc.content or "," in doc.content:
-            score += 1
-
-        # Base vector confidence
-        score += 0.5
-
-        # Length normalization
-        score += min(len(content) / 500, 1)
-
-        scored_docs.append((score, doc.content, doc.document_title, doc.file_type, doc.filename, doc.chunk_index))
-
-    if not scored_docs:
-        return "", []
-
-    scored_docs.sort(key=lambda x: x[0], reverse=True)
-
-    # ==========================================
-    # MULTI FILE DIVERSITY FIX
-    # ==========================================
-
+    # Build structured citations & extract image paths
     unique_chunks = []
-    seen_chunks = set()
-    ordered_files = []
+    seen = set()
+    image_paths = []
 
-    for score, text, fpath, ftype, fname, chunk_idx in scored_docs:
-
-        key = text[:150]
-
-        if key in seen_chunks:
+    for doc in matched_docs:
+        if not doc.content or not doc.content.strip():
             continue
 
-        if fpath not in ordered_files:
-            if len(ordered_files) < 4:
-                ordered_files.append(fpath)
+        key = doc.content[:120]
+        if key in seen:
+            continue
+        seen.add(key)
 
-        seen_chunks.add(key)
-        
-        # Clean potential UUIDs from filenames for readable citations
-        display_name = fname if fname else (fpath if fpath else "Source Document")
-        if display_name and "/" in display_name:
-            display_name = display_name.split("/")[-1]
-        if display_name and "\\" in display_name:
-            display_name = display_name.split("\\")[-1]
-            
-        if display_name and len(display_name) > 37 and re.match(r"^[a-fA-F0-9\-]{36}_", display_name):
-            display_name = display_name[37:]
-            
-        citation_header = f"--- SOURCE CITATION: File: {display_name} | Chunk: {chunk_idx + 1} ---\n"
-        unique_chunks.append(citation_header + text)
+        display_name = doc.filename or "Uploaded Document"
+        chunk_num = (doc.chunk_index + 1) if doc.chunk_index is not None else 1
+        citation_header = f"--- [DOCUMENT: {display_name} | Section {chunk_num}] ---\n"
+        unique_chunks.append(citation_header + doc.content.strip())
 
-        if len(unique_chunks) >= 10:
-            break
+        # Collect image paths for vision processing
+        if doc.document_title and os.path.exists(doc.document_title):
+            ext = os.path.splitext(doc.document_title)[1].lower()
+            if ext in [".png", ".jpg", ".jpeg", ".webp"] and doc.document_title not in image_paths:
+                image_paths.append(doc.document_title)
 
     if not unique_chunks:
         return "", []
 
     context = "\n\n".join(unique_chunks)
-    context = context[:3500]
-
-    # ONLY trigger visual context pipeline if the ultimate highest scoring vector target is an image!
-    highest_score_file_type = scored_docs[0][3] if scored_docs else ""
-
-    image_paths = []
-    if highest_score_file_type in [".png", ".jpg", ".jpeg"]:
-        image_paths = [
-            p for p in ordered_files 
-            if p and tuple(p.lower().rsplit(".", 1))[-1] in ["jpg", "jpeg", "png"]
-        ]
+    # Generous context limit for documents/spreadsheets/OCR
+    context = context[:8000]
 
     return context, image_paths

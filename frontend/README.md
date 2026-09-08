@@ -270,4 +270,4 @@ Full-stack developer focused on building enterprise AI applications.
 
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the MIT Lice mnse.

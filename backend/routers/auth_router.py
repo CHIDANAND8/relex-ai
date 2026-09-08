@@ -157,6 +157,12 @@ def oauth_callback(data: OAuthRequest, db: Session = Depends(get_db)):
                     timeout=10
                 )
                 tok_data = tok_res.json()
+                
+                if tok_res.status_code != 200 or "access_token" not in tok_data:
+                    err_desc = tok_data.get("error_description") or tok_data.get("error") or "OAuth code verification failed"
+                    print(f"[Google OAuth] Token exchange error: {err_desc} (Status: {tok_res.status_code})")
+                    raise HTTPException(status_code=400, detail=f"Google OAuth Error: {err_desc}")
+                
                 access_token = tok_data.get("access_token")
                 
                 # Fetch profile
@@ -166,8 +172,14 @@ def oauth_callback(data: OAuthRequest, db: Session = Depends(get_db)):
                     timeout=10
                 )
                 prof_data = prof_res.json()
+                
+                if prof_res.status_code != 200 or "email" not in prof_data:
+                    prof_err = prof_data.get("error", {}).get("message") if isinstance(prof_data.get("error"), dict) else "Could not fetch Google profile"
+                    print(f"[Google OAuth] Userinfo error: {prof_err}")
+                    raise HTTPException(status_code=400, detail=f"Google Profile Error: {prof_err}")
+                
                 email = prof_data.get("email")
-                name = prof_data.get("name") or prof_data.get("email").split("@")[0]
+                name = prof_data.get("name") or (email.split("@")[0] if email else "Google User")
                 
             elif provider == "facebook":
                 # Exchange token
@@ -182,6 +194,12 @@ def oauth_callback(data: OAuthRequest, db: Session = Depends(get_db)):
                     timeout=10
                 )
                 tok_data = tok_res.json()
+                
+                if tok_res.status_code != 200 or "access_token" not in tok_data:
+                    err_desc = tok_data.get("error", {}).get("message") if isinstance(tok_data.get("error"), dict) else "Facebook OAuth exchange failed"
+                    print(f"[Facebook OAuth] Token exchange error: {err_desc}")
+                    raise HTTPException(status_code=400, detail=f"Facebook OAuth Error: {err_desc}")
+                
                 access_token = tok_data.get("access_token")
                 
                 # Fetch profile
@@ -195,29 +213,57 @@ def oauth_callback(data: OAuthRequest, db: Session = Depends(get_db)):
                 )
                 prof_data = prof_res.json()
                 email = prof_data.get("email") or f"fb_{prof_data.get('id')}@facebook.com"
-                name = prof_data.get("name") or email.split("@")[0]
+                name = prof_data.get("name") or (email.split("@")[0] if email else "Facebook User")
             else:
                 raise HTTPException(status_code=400, detail="Invalid provider")
                 
+        except HTTPException:
+            raise
         except Exception as e:
-            # Fallback to simulated user credentials if connection times out online
-            email = f"{provider}_simulated_user@relex.ai"
-            name = f"Simulated {provider.capitalize()} User"
+            print(f"OAuth callback unexpected error: {e}")
+            raise HTTPException(status_code=400, detail=f"Authentication request failed: {str(e)}")
             
     if not email:
         raise HTTPException(status_code=400, detail="Could not retrieve email from provider")
 
     # Find or auto-register user in DB
     user = db.query(User).filter(User.username == email).first()
+    is_new_user = False
     if not user:
         user = User(
             username=email,
             password=hash_password(f"SocialOAuth_{email}_RandomEntropyKeySecurePwd"[:72]),
-            role="Standard User"
+            role="user"
         )
         db.add(user)
-        db.commit()
-        db.refresh(user)
+        try:
+            db.commit()
+            db.refresh(user)
+            is_new_user = True
+        except IntegrityError:
+            db.rollback()
+            user = db.query(User).filter(User.username == email).first()
+
+    if is_new_user and user:
+        # Broadcast user registration event to admin dashboards
+        try:
+            from services.notification_service import notification_manager
+            import asyncio
+            loop = asyncio.get_event_loop()
+            event_payload = {
+                "type": "USER_SIGNUP",
+                "message": f"New user signed up via {provider.capitalize()}: {user.username}",
+                "data": {
+                    "username": user.username,
+                    "role": user.role
+                }
+            }
+            if loop.is_running():
+                loop.create_task(notification_manager.broadcast(event_payload))
+            else:
+                loop.run_until_complete(notification_manager.broadcast(event_payload))
+        except Exception as ws_err:
+            print("Failed to broadcast social signup notification:", ws_err)
         
     return {
         "id": user.id,
@@ -226,4 +272,5 @@ def oauth_callback(data: OAuthRequest, db: Session = Depends(get_db)):
         "name": name,
         "provider": provider
     }
+
 

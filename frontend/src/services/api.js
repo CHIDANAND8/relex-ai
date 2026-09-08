@@ -1,4 +1,4 @@
-import { apiFetch } from "./apiClient";
+import { apiFetch, getApiUrl } from "./apiClient";
 
 /* =========================
    AUTH
@@ -12,6 +12,12 @@ export const signup = (data) =>
 
 export const login = (data) =>
     apiFetch("/auth/login", {
+        method: "POST",
+        body: JSON.stringify(data),
+    });
+
+export const oauthCallback = (data) =>
+    apiFetch("/auth/oauth-callback", {
         method: "POST",
         body: JSON.stringify(data),
     });
@@ -89,7 +95,7 @@ export const sendMessage = async(data, signal) => {
         fetchOptions.signal = signal;
     }
 
-    const res = await fetch((process.env.REACT_APP_API_URL || "http://localhost:8000") + "/chat", fetchOptions);
+    const res = await fetch(getApiUrl() + "/chat", fetchOptions);
 
     if (!res.ok) {
         const text = await res.text();
@@ -101,10 +107,10 @@ export const sendMessage = async(data, signal) => {
 
 /* =========================
    EDIT MESSAGE (STREAM)
-========================= */
+ ========================= */
 
 export const editMessage = async(data) => {
-    const res = await fetch((process.env.REACT_APP_API_URL || "http://localhost:8000") + "/edit", {
+    const res = await fetch(getApiUrl() + "/edit", {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
@@ -119,6 +125,16 @@ export const editMessage = async(data) => {
 
     return res;
 };
+
+/* =========================
+   EXPORT PDF
+========================= */
+
+export const exportPdf = (data) =>
+    apiFetch("/export/pdf", {
+        method: "POST",
+        body: JSON.stringify(data),
+    });
 
 /* =========================
    ADMIN FEEDS

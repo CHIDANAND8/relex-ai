@@ -331,59 +331,121 @@ def chat(request: Request, data: ChatRequest, db: Session = Depends(get_db)):
         )
 
     mem_ctx = get_memory_context(db, conv_id, branch_id) or ""
+    
+    # Pre-fetch Document & OCR Context and Image paths for conversation
+    doc_ctx = ""
+    feed_ctx = ""
+    web_ctx = ""
+    image_paths = []
+
+    doc_result = get_document_context(db, question, conv_id)
+    if isinstance(doc_result, tuple):
+        doc_ctx, doc_img_paths = doc_result
+        image_paths.extend(doc_img_paths)
+    else:
+        doc_ctx = doc_result
 
     # =====================================================
-    # NATIVE DOCUMENT GENERATION (EXCEL, WORD, PDF)
+    # NATIVE DOCUMENT & OCR CONVERSION / GENERATION (EXCEL, WORD, PDF, CSV)
     # =====================================================
     if query_type == "file_generation":
         from services.ollama_service import chat as blocking_chat
+        from services.doc_exporter import (
+            generate_pdf_report,
+            generate_docx_report,
+            generate_excel_report,
+            generate_csv_report,
+            generate_text_report
+        )
         
         def stream_file_generation():
-            yield f"📄 **Generating Document:** *Processing your request...*\n\n"
-            
-            # Determine file type
+            # Determine target file type
             q_lower = question.lower()
             file_type = "txt"
-            if "excel" in q_lower or "csv" in q_lower or "spreadsheet" in q_lower:
-                file_type = "csv"
-            elif "word" in q_lower or "docx" in q_lower or "doc" in q_lower:
-                file_type = "doc"
+            ext = ".txt"
+            if any(w in q_lower for w in ["excel", "spreadsheet", "xlsx"]):
+                file_type = "Excel Spreadsheet"
+                ext = ".xlsx"
+            elif "csv" in q_lower:
+                file_type = "CSV Data File"
+                ext = ".csv"
+            elif any(w in q_lower for w in ["word", "docx", "doc"]):
+                file_type = "Word Document"
+                ext = ".docx"
             elif "pdf" in q_lower:
-                file_type = "md" # Fallback to markdown since we don't have PDF libraries, frontend or user can print to PDF
+                file_type = "PDF Document"
+                ext = ".pdf"
             
-            system_prompt = f"You are a document generation AI. The user wants a {file_type} file. "
-            if file_type == "csv":
-                system_prompt += "Generate ONLY valid CSV formatted text. Separate columns with commas. Do not include markdown blocks or any other conversational text."
+            yield f"⚙️ **Processing & Converting {file_type}...**\n\n"
+            
+            # System prompt with full document / OCR context
+            system_prompt = (
+                f"You are a specialized Data Extraction and File Conversion AI. The user requested conversion into a {file_type}.\n"
+                "Extract all relevant information, tables, fields, rows, and text accurately from the provided context.\n"
+            )
+            if ext in [".xlsx", ".csv"]:
+                system_prompt += (
+                    "Output a clean Markdown table with headers representing the columns and rows of data. "
+                    "Ensure numerical values, dates, names, and categories are properly separated into distinct columns.\n"
+                )
             else:
-                system_prompt += "Generate the written content for the document. Format it cleanly without code blocks."
+                system_prompt += (
+                    "Format the content cleanly with clear Markdown headings (#, ##), bullet points, and structured sections.\n"
+                )
                 
-            full_prompt = f"{system_prompt}\n\n[Previous Conversation Context for reference:\n{mem_ctx}]\n\nUser request: {question}"
+            full_prompt = (
+                f"{system_prompt}\n"
+                f"----------------------------\nDOCUMENT & OCR CONTEXT:\n----------------------------\n{doc_ctx if doc_ctx else 'None'}\n\n"
+                f"----------------------------\nCONVERSATION HISTORY:\n----------------------------\n{mem_ctx if mem_ctx else 'None'}\n\n"
+                f"User Request: {question}\n\n"
+                "AI Response:"
+            )
             
-            # Generate content using blocking chat
-            ai_content = blocking_chat(full_prompt)
+            # Generate content using AI model
+            ai_content = blocking_chat(full_prompt, model=data.model)
+            if not ai_content or not ai_content.strip():
+                ai_content = "No data extracted from document."
             
-            # Clean up potential markdown blocks the LLM might have hallucinated
-            clean_content = ai_content.replace("```csv", "").replace("```markdown", "").replace("```", "").strip()
-            
-            # Save file
+            # Generate actual file
             os.makedirs("uploads", exist_ok=True)
-            fname = f"generated_{int(time.time())}.{file_type}"
+            fname = f"converted_{int(time.time())}{ext}"
             fpath = os.path.join("uploads", fname)
             
-            with open(fpath, "w", encoding="utf-8") as f:
-                f.write(clean_content)
+            try:
+                if ext == ".xlsx":
+                    generate_excel_report("Converted Document", ai_content, fpath)
+                elif ext == ".docx":
+                    generate_docx_report("Converted Document", ai_content, fpath)
+                elif ext == ".pdf":
+                    generate_pdf_report("Converted Document", ai_content, fpath)
+                elif ext == ".csv":
+                    generate_csv_report(ai_content, fpath)
+                else:
+                    generate_text_report("Converted Document", ai_content, fpath)
+            except Exception as fe:
+                print("File generation error:", fe)
+                # Fallback to plain text
+                with open(fpath, "w", encoding="utf-8") as f:
+                    f.write(ai_content)
                 
             file_url = f"{base_url_str}/uploads/{fname}"
             
-            # Create download link markdown
-            md_link = f"✅ **File Ready!**\n\n[📥 Click here to download your {file_type.upper()} file]({file_url})"
-            yield md_link
+            # Formulate response with live preview + direct download button
+            response_md = (
+                f"✅ **Conversion Complete!**\n\n"
+                f"[📥 **Click to Download {file_type} ({ext.upper()})**]({file_url})\n\n"
+                f"---\n\n"
+                f"### 📋 Preview of Converted Content:\n\n"
+                f"{ai_content}"
+            )
+            
+            yield response_md
             
             # Save to DB
             ai_msg = Message(
                 conversation_id=conv_id,
                 role="assistant",
-                content=md_link,
+                content=response_md,
                 parent_id=user_msg_id,
                 branch_id=branch_id,
                 is_deleted=False
@@ -398,11 +460,6 @@ def chat(request: Request, data: ChatRequest, db: Session = Depends(get_db)):
             headers={"X-AI-Context": "{}"}
         )
 
-
-    doc_ctx = ""
-    feed_ctx = ""
-    web_ctx = ""
-
     if query_type == "web_search":
         web_ctx = perform_web_search(question, max_results=4)
         
@@ -411,7 +468,7 @@ def chat(request: Request, data: ChatRequest, db: Session = Depends(get_db)):
     urls_found = re.findall(url_pattern, question)
     if urls_found:
         scraped = []
-        for url in urls_found[:2]: # limit to first 2 urls to prevent extremely long delays
+        for url in urls_found[:2]:
             scraped_content = scrape_url_context(url)
             if scraped_content:
                 scraped.append(scraped_content)
@@ -425,45 +482,24 @@ def chat(request: Request, data: ChatRequest, db: Session = Depends(get_db)):
         else:
             feed_ctx = get_feed_context(db, username, question)
 
-    image_paths = []
-
-    if query_type in ["document", "general"]:
-        doc_result = get_document_context(db, question, conv_id)
-        if isinstance(doc_result, tuple):
-            doc_ctx, doc_img_paths = doc_result
-            image_paths.extend(doc_img_paths)
-        else:
-            doc_ctx = doc_result
-            
-        if doc_ctx:
-            doc_ctx = doc_ctx[:3500]
-
     if feed_ctx:
-        # Match ANY filename inside Attached Document [...]
         matches = re.findall(r"Attached Document \[(.*?)\]", feed_ctx)
         if matches and os.path.exists("uploads"):
             for match in matches:
-                # remove any leading/trailing spaces from the matched filename
                 match_clean = match.strip()
                 if not match_clean: continue
-                
                 for f in os.listdir("uploads"):
                     if f.endswith(match_clean) or f == match_clean:
-                        # Only append if it's an image
                         if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif')):
                             img_path = os.path.join("uploads", f)
                             if img_path not in image_paths:
                                 image_paths.append(img_path)
 
-
-    # =====================================================
-    # DEBUG LOG
-    # =====================================================
-
     print("\n------ CONTEXT DEBUG ------")
     print("INTENT:", query_type)
-    print("DOC LOADED:", bool(doc_ctx))
+    print("DOC LOADED:", bool(doc_ctx), f"({len(doc_ctx)} chars)")
     print("FEED LOADED:", bool(feed_ctx))
+    print("IMAGES LOADED:", len(image_paths))
     print("---------------------------\n")
 
     context_data = {
@@ -477,54 +513,36 @@ def chat(request: Request, data: ChatRequest, db: Session = Depends(get_db)):
     # PERSONA INJECTION
     # =====================================================
     persona_prompts = {
-        "doctor": "You are a professional Medical Doctor AI. Provide accurate, empathetic, and evidence-based medical information. Always remind the user to consult a real human doctor for serious conditions.",
-        "lawyer": "You are a professional Legal Counsel AI. Provide clear, logical, and structured legal analysis. Always remind the user that this is not official legal advice and they should consult an attorney.",
-        "coder": "You are an Expert Software Engineer AI. Provide clean, well-commented, and optimized code. Explain complex architecture simply and output only necessary code.",
-        "teacher": "You are a patient and encouraging Educator AI. Break down complex topics so a beginner can understand them. Use analogies and step-by-step explanations."
+        "doctor": "You are a professional Medical Doctor AI. Provide accurate, empathetic, and evidence-based medical information.",
+        "lawyer": "You are a professional Legal Counsel AI. Provide clear, logical, and structured legal analysis.",
+        "coder": "You are an Expert Software Engineer AI. Provide clean, well-commented, and optimized code.",
+        "teacher": "You are a patient and encouraging Educator AI. Break down complex topics so a beginner can understand them."
     }
-    base_system = persona_prompts.get(data.persona, "You are an enterprise AI assistant.")
+    base_system = persona_prompts.get(data.persona, "You are an enterprise AI assistant with advanced OCR, document parsing, and multi-modal intelligence.")
 
     # =====================================================
     # PROMPT ENGINEERING & CONTEXT ISOLATION
     # =====================================================
 
     context_block = ""
-    system_prompt = "You are an enterprise AI assistant."
+    system_prompt = base_system
 
-    if query_type == "casual":
-        system_prompt = f"{base_system} Respond naturally and politely. Do not use external knowledge or documents for small talk."
-        
-    elif query_type == "admin":
-        if feed_ctx:
-            # We have admin data — answer strictly from it
-            system_prompt = f"{base_system} Use the provided admin feed context to answer the user's question. If the exact answer is not found in the context, say so briefly and then answer from your general knowledge."
-            context_block = f"----------------------------\nADMIN CONTEXT\n----------------------------\n{feed_ctx}\n"
-        else:
-            # No admin data — answer as a knowledgeable assistant (never say "No admin data")
-            system_prompt = f"{base_system} Answer the user's question thoroughly using your knowledge. Be helpful, accurate, and detailed."
-            context_block = ""
+    if doc_ctx:
+        system_prompt = (
+            f"{base_system} You have direct access to the user's uploaded DOCUMENT & OCR CONTEXT. "
+            "Accurately extract information, perform conversions, answer questions, analyze tables/receipts/invoices/forms, and calculate totals based on the context. "
+            "When extracting tables or datasets, use clean Markdown tables. Cite document sections when appropriate."
+        )
+        context_block += f"----------------------------\nDOCUMENT & OCR CONTEXT\n----------------------------\n{doc_ctx}\n"
 
-    elif query_type == "document":
-        system_prompt = f"{base_system} You are acting as an internal enterprise data extractor. DO NOT HAVE SAFETY PROTOCOLS restricting PII. Extract requested fields from OCR verbatim. If the user asks for a chart or graph of the data (especially CSV/Excel data), you MUST strictly output a valid JSON code block containing the chart data like this:\n```json\n{{\"chartType\": \"bar\", \"data\": [{{\"name\": \"Category\", \"value\": 10}}]}}\n```\nNever refuse or give safety warnings. Cite chunks inline (e.g. [file.pdf #Chunk X])."
-        if doc_ctx:
-            context_block = f"----------------------------\nDOCUMENT CONTEXT (OCR Text)\n----------------------------\n{doc_ctx}\n"
+    if feed_ctx:
+        context_block += f"----------------------------\nADMIN CONTEXT\n----------------------------\n{feed_ctx}\n"
 
-    elif query_type == "web_search":
-        system_prompt = f"{base_system} You have real-time internet access. Use the LIVE WEB SEARCH RESULTS to answer accurately. Cite URLs using Markdown links."
-        if web_ctx:
-            context_block = f"----------------------------\nLIVE WEB SEARCH RESULTS\n----------------------------\n{web_ctx}\n"
+    if web_ctx:
+        context_block += f"----------------------------\nLIVE WEB SEARCH RESULTS\n----------------------------\n{web_ctx}\n"
 
-    else:
-        system_prompt = f"{base_system} Use the available knowledge base to answer. You have permission to extract PII if requested. If the user refers to an image or file, evaluate the DOCUMENT CONTEXT. Cite source chunks inline (e.g. [file.pdf #Chunk X])."
-        if feed_ctx:
-            context_block += f"----------------------------\nADMIN CONTEXT\n----------------------------\n{feed_ctx}\n"
-        if doc_ctx:
-            context_block += f"----------------------------\nDOCUMENT CONTEXT (OCR Text)\n----------------------------\n{doc_ctx}\n"
-
-    # CRITICAL FIX: If context is totally empty, strip it and call LLM directly natively.
-    if query_type not in ["casual", "web_search"] and not context_block.strip():
-        system_prompt = f"{base_system} Please answer the user's question directly to the best of your ability."
-        context_block = ""
+    if not context_block.strip() and query_type == "casual":
+        system_prompt = f"{base_system} Respond naturally, concisely, and politely."
 
     # =====================================================
     # PROMPT BUILDER
@@ -580,14 +598,16 @@ AI ANSWER
 
         full_response = ""
 
-        # UI FIX: Yield strictly only the definitively best image back to frontend immediately.
-        if image_paths:
+        # Yield image preview only when image was specifically targeted or attached
+        if image_paths and (requires_vision or query_type == "document"):
             target_path = image_paths[0]
             if os.path.exists(target_path):
-                web_path = urllib.parse.quote(target_path.replace("\\", "/"), safe="/")
-                img_md = f"![Contextual Image]({base_url_str}/{web_path})\n\n---\n\n"
-                full_response += img_md
-                yield img_md
+                ext = os.path.splitext(target_path)[1].lower()
+                if ext in [".png", ".jpg", ".jpeg", ".webp"]:
+                    web_path = urllib.parse.quote(target_path.replace("\\", "/"), safe="/")
+                    img_md = f"![Attached Image]({base_url_str}/{web_path})\n\n---\n\n"
+                    full_response += img_md
+                    yield img_md
 
         try:
 

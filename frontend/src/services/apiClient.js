@@ -1,7 +1,15 @@
-const API = process.env.REACT_APP_API_URL || "http://localhost:8000";
+export const getApiUrl = () => {
+    if (process.env.REACT_APP_API_URL && process.env.REACT_APP_API_URL.trim()) {
+        return process.env.REACT_APP_API_URL.trim().replace(/\/+$/, "");
+    }
+    if (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")) {
+        return "http://localhost:8000";
+    }
+    return "https://relex-ai-backend.onrender.com";
+};
 
 export async function apiFetch(path, options = {}) {
-
+    const API = getApiUrl();
     const token = localStorage.getItem("token");
 
     const headers = {};
@@ -19,7 +27,8 @@ export async function apiFetch(path, options = {}) {
         Object.assign(headers, options.headers);
     }
 
-    const res = await fetch(API + path, {
+    const cleanPath = path.startsWith("/") ? path : `/${path}`;
+    const res = await fetch(API + cleanPath, {
         ...options,
         headers: headers
     });

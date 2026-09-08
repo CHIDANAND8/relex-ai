@@ -17,12 +17,13 @@ OLLAMA_BASE_URL = "http://localhost:11434"
 # Embedding / utility-only models to exclude from chat selection
 EXCLUDED_OLLAMA_MODELS = {"nomic-embed-text", "nomic-embed-text:latest", "all-minilm", "mxbai-embed"}
 
-GROQ_MODELS = [
+# Fallback static registry for Groq Cloud
+DEFAULT_GROQ_MODELS = [
     {
         "id": "llama-3.3-70b-versatile",
         "name": "Llama 3.3 70B",
         "badge": "🧠 High Accuracy",
-        "description": "GPT-4 level reasoning — highest accuracy for complex Q&A and document analysis",
+        "description": "Deep reasoning & highest accuracy for complex Q&A and coding",
         "provider": "groq",
         "provider_label": "☁️ Groq Cloud",
         "default": True
@@ -31,7 +32,25 @@ GROQ_MODELS = [
         "id": "llama-3.1-8b-instant",
         "name": "Llama 3.1 8B",
         "badge": "⚡ Ultra Fast",
-        "description": "Lightning-fast responses for everyday conversations and quick answers",
+        "description": "Lightning-fast responses for everyday conversations",
+        "provider": "groq",
+        "provider_label": "☁️ Groq Cloud",
+        "default": False
+    },
+    {
+        "id": "llama3-70b-8192",
+        "name": "Llama 3 70B",
+        "badge": "🔬 Versatile",
+        "description": "High-capacity reasoning and structured output",
+        "provider": "groq",
+        "provider_label": "☁️ Groq Cloud",
+        "default": False
+    },
+    {
+        "id": "llama3-8b-8192",
+        "name": "Llama 3 8B",
+        "badge": "⚡ Fast",
+        "description": "Fast and lightweight Meta model",
         "provider": "groq",
         "provider_label": "☁️ Groq Cloud",
         "default": False
@@ -40,7 +59,7 @@ GROQ_MODELS = [
         "id": "mixtral-8x7b-32768",
         "name": "Mixtral 8x7B",
         "badge": "🔬 Deep Logic",
-        "description": "32k long-context window for complex multi-step technical analysis",
+        "description": "32k long-context window for complex technical analysis",
         "provider": "groq",
         "provider_label": "☁️ Groq Cloud",
         "default": False
@@ -49,12 +68,33 @@ GROQ_MODELS = [
         "id": "gemma2-9b-it",
         "name": "Gemma 2 9B",
         "badge": "💎 Balanced",
-        "description": "Google's high-efficiency model balancing speed and nuanced understanding",
+        "description": "Google's high-efficiency model balancing speed and quality",
         "provider": "groq",
         "provider_label": "☁️ Groq Cloud",
         "default": False
     },
 ]
+
+def fetch_groq_models():
+    """Dynamically query Groq API for available chat models, falling back to DEFAULT_GROQ_MODELS."""
+    if not client:
+        return DEFAULT_GROQ_MODELS
+    try:
+        models_data = client.models.list()
+        chat_model_ids = {m.id for m in models_data.data if not m.id.startswith("whisper")}
+        
+        # Filter and prioritize models from our metadata registry
+        active = [m for m in DEFAULT_GROQ_MODELS if m["id"] in chat_model_ids]
+        if active:
+            active[0]["default"] = True
+            return active
+        return DEFAULT_GROQ_MODELS
+    except Exception as e:
+        print(f"Error fetching Groq models list: {e}")
+        return DEFAULT_GROQ_MODELS
+
+GROQ_MODELS = DEFAULT_GROQ_MODELS
+
 
 # Metadata for known local Ollama models for better display
 KNOWN_OLLAMA_META = {
@@ -123,15 +163,15 @@ def fetch_local_ollama_models():
 
 
 def get_all_available_models():
-    """Return combined Groq cloud + detected local Ollama models."""
+    """Return dynamically detected Groq cloud + detected local Ollama models."""
+    groq = fetch_groq_models()
     local = fetch_local_ollama_models()
-    return GROQ_MODELS + local
+    return groq + local
 
 
 # Default Groq fallback values
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
 VISION_MODEL = "llama-3.2-11b-vision-preview"
-VALID_GROQ_IDS = {m["id"] for m in GROQ_MODELS}
 
 
 # =========================================================
@@ -190,101 +230,128 @@ def stream_ollama_local(prompt: str, model_name: str, images: list = None):
 def chat_stream(prompt: str, model: str = DEFAULT_MODEL, images: list = None):
     """
     Routes streaming requests:
-      - 'ollama:...'  prefix → local Ollama instance
-      - everything else      → Groq Cloud API
+      - 'ollama:...'  prefix or local Ollama match → local Ollama instance
+      - everything else                            → Groq Cloud API with multi-fallback
     """
 
     # ---- LOCAL OLLAMA ----
-    if model.startswith("ollama:"):
-        ollama_model_name = model[len("ollama:"):]
+    if model.startswith("ollama:") or any(model.startswith(k) for k in KNOWN_OLLAMA_META.keys()):
+        ollama_model_name = model[len("ollama:"):] if model.startswith("ollama:") else model
         yield from stream_ollama_local(prompt, ollama_model_name, images=images)
         return
 
     # ---- GROQ CLOUD ----
     if not client:
-        yield "\n[Error: GROQ_API_KEY not found in backend/.env]"
+        # Check if local Ollama has any model
+        local = fetch_local_ollama_models()
+        if local:
+            mname = local[0]["id"].replace("ollama:", "")
+            yield from stream_ollama_local(prompt, mname, images=images)
+            return
+        yield "\n[Error: GROQ_API_KEY not configured and no local Ollama models detected]"
         return
 
-    selected_model = model if model in VALID_GROQ_IDS else DEFAULT_MODEL
+    # Build fallback candidates list starting with requested model
+    fallback_candidates = [model, "llama-3.3-70b-versatile", "llama3-70b-8192", "mixtral-8x7b-32768", "gemma2-9b-it", "llama3-8b-8192", "llama-3.1-8b-instant"]
+    # De-duplicate preserving order
+    seen = set()
+    models_to_try = [x for x in fallback_candidates if not (x in seen or seen.add(x))]
 
-    try:
-        messages = []
-        use_model = selected_model
+    for candidate_model in models_to_try:
+        try:
+            messages = []
+            use_model = candidate_model
 
-        if images:
-            content = [{"type": "text", "text": prompt}]
-            for img in images:
-                content.append({
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{img}"}
-                })
-            messages.append({"role": "user", "content": content})
-            use_model = VISION_MODEL
-        else:
-            messages.append({"role": "user", "content": prompt})
+            if images:
+                content = [{"type": "text", "text": prompt}]
+                for img in images:
+                    content.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{img}"}
+                    })
+                messages.append({"role": "user", "content": content})
+                use_model = VISION_MODEL
+            else:
+                messages.append({"role": "user", "content": prompt})
 
-        stream = client.chat.completions.create(
-            model=use_model,
-            messages=messages,
-            stream=True,
-            temperature=0.5,
-            max_tokens=2048
-        )
+            stream = client.chat.completions.create(
+                model=use_model,
+                messages=messages,
+                stream=True,
+                temperature=0.5,
+                max_tokens=2048
+            )
 
-        for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+            return  # Successful stream completion
 
-    except Exception as e:
-        print(f"Groq stream error (Model: {selected_model}):", e)
-        # Fallback to fast cloud model
-        if selected_model != "llama-3.1-8b-instant":
-            try:
-                print("Falling back to llama-3.1-8b-instant...")
-                fb_stream = client.chat.completions.create(
-                    model="llama-3.1-8b-instant",
-                    messages=[{"role": "user", "content": prompt}],
-                    stream=True,
-                    temperature=0.5,
-                    max_tokens=2048
-                )
-                for chunk in fb_stream:
-                    if chunk.choices and chunk.choices[0].delta.content:
-                        yield chunk.choices[0].delta.content
-                return
-            except Exception as fe:
-                print("Fallback also failed:", fe)
-        yield f"\n[Error: Groq API error - {str(e)}]"
+        except Exception as e:
+            print(f"Groq stream attempt failed (Model: {candidate_model}): {e}")
+            continue
+
+    # If all Groq attempts failed, check if local Ollama is available
+    local_models = fetch_local_ollama_models()
+    if local_models:
+        first_local = local_models[0]["id"].replace("ollama:", "")
+        print(f"Falling back to local Ollama model: {first_local}")
+        yield from stream_ollama_local(prompt, first_local, images=images)
+        return
+
+    yield "\n[Error: AI models are currently unreachable. Please verify your Groq API key or start local Ollama (`ollama serve`).]"
+
 
 
 # =========================================================
-# NON-STREAMING CHAT (used internally by some services)
+# NON-STREAMING CHAT (used internally by document converters & services)
 # =========================================================
 def chat(prompt: str, model: str = DEFAULT_MODEL):
-    if model.startswith("ollama:"):
-        # Collect full response from local stream
+    """Non-streaming blocking chat with multi-model fallback."""
+    if model.startswith("ollama:") or any(model.startswith(k) for k in KNOWN_OLLAMA_META.keys()):
+        ollama_model_name = model[len("ollama:"):] if model.startswith("ollama:") else model
         result = ""
-        for tok in stream_ollama_local(prompt, model[len("ollama:"):]):
+        for tok in stream_ollama_local(prompt, ollama_model_name):
             result += tok
         return result
 
     if not client:
-        return "[Error: GROQ_API_KEY not found in backend/.env]"
+        local_models = fetch_local_ollama_models()
+        if local_models:
+            first_local = local_models[0]["id"].replace("ollama:", "")
+            result = ""
+            for tok in stream_ollama_local(prompt, first_local):
+                result += tok
+            return result
+        return "[Error: GROQ_API_KEY not configured and no local Ollama models detected]"
 
-    selected_model = model if model in VALID_GROQ_IDS else DEFAULT_MODEL
-    try:
-        response = client.chat.completions.create(
-            model=selected_model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.5,
-            max_tokens=2048
-        )
-        if response.choices:
-            return response.choices[0].message.content
-        return ""
-    except Exception as e:
-        print(f"Groq error (Model: {selected_model}):", e)
-        return f"[Error: Groq API error - {str(e)}]"
+    fallback_candidates = [model, "llama-3.3-70b-versatile", "llama3-70b-8192", "mixtral-8x7b-32768", "gemma2-9b-it", "llama3-8b-8192", "llama-3.1-8b-instant"]
+    seen = set()
+    models_to_try = [x for x in fallback_candidates if not (x in seen or seen.add(x))]
+
+    for candidate_model in models_to_try:
+        try:
+            response = client.chat.completions.create(
+                model=candidate_model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=2048
+            )
+            if response.choices and response.choices[0].message.content:
+                return response.choices[0].message.content
+        except Exception as e:
+            print(f"Groq chat attempt failed (Model: {candidate_model}): {e}")
+            continue
+
+    local_models = fetch_local_ollama_models()
+    if local_models:
+        first_local = local_models[0]["id"].replace("ollama:", "")
+        result = ""
+        for tok in stream_ollama_local(prompt, first_local):
+            result += tok
+        return result
+
+    return "[Error: AI models are currently unreachable. Please check your network or Groq API key.]"
 
 # Keep backward compatibility alias
-AVAILABLE_MODELS = GROQ_MODELS
+AVAILABLE_MODELS = DEFAULT_GROQ_MODELS
