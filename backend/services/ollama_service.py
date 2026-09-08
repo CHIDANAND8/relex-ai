@@ -6,8 +6,19 @@ from groq import Groq
 # =========================================================
 # GROQ CLOUD CLIENT
 # =========================================================
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+def get_groq_client():
+    """Retrieve an initialized Groq client using the active GROQ_API_KEY."""
+    key = os.environ.get("GROQ_API_KEY", "").strip()
+    if not key:
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+            key = os.environ.get("GROQ_API_KEY", "").strip()
+        except Exception:
+            pass
+    if key:
+        return Groq(api_key=key)
+    return None
 
 OLLAMA_BASE_URL = "http://localhost:11434"
 
@@ -77,6 +88,7 @@ DEFAULT_GROQ_MODELS = [
 
 def fetch_groq_models():
     """Dynamically query Groq API for available chat models, falling back to DEFAULT_GROQ_MODELS."""
+    client = get_groq_client()
     if not client:
         return DEFAULT_GROQ_MODELS
     try:
@@ -241,22 +253,32 @@ def chat_stream(prompt: str, model: str = DEFAULT_MODEL, images: list = None):
         return
 
     # ---- GROQ CLOUD ----
-    if not client:
+    groq_client = get_groq_client()
+    if not groq_client:
         # Check if local Ollama has any model
         local = fetch_local_ollama_models()
         if local:
             mname = local[0]["id"].replace("ollama:", "")
             yield from stream_ollama_local(prompt, mname, images=images)
             return
-        yield "\n[Error: GROQ_API_KEY not configured and no local Ollama models detected]"
+        yield "\n[Error: GROQ_API_KEY is not configured on the backend server. If using Render, please add GROQ_API_KEY under your Web Service -> Environment tab.]"
         return
 
     # Build fallback candidates list starting with requested model
-    fallback_candidates = [model, "llama-3.3-70b-versatile", "llama3-70b-8192", "mixtral-8x7b-32768", "gemma2-9b-it", "llama3-8b-8192", "llama-3.1-8b-instant"]
+    fallback_candidates = [
+        model,
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "mixtral-8x7b-32768",
+        "gemma2-9b-it",
+        "llama3-70b-8192",
+        "llama3-8b-8192"
+    ]
     # De-duplicate preserving order
     seen = set()
     models_to_try = [x for x in fallback_candidates if not (x in seen or seen.add(x))]
 
+    last_error_msg = ""
     for candidate_model in models_to_try:
         try:
             messages = []
@@ -274,7 +296,7 @@ def chat_stream(prompt: str, model: str = DEFAULT_MODEL, images: list = None):
             else:
                 messages.append({"role": "user", "content": prompt})
 
-            stream = client.chat.completions.create(
+            stream = groq_client.chat.completions.create(
                 model=use_model,
                 messages=messages,
                 stream=True,
@@ -288,6 +310,7 @@ def chat_stream(prompt: str, model: str = DEFAULT_MODEL, images: list = None):
             return  # Successful stream completion
 
         except Exception as e:
+            last_error_msg = str(e)
             print(f"Groq stream attempt failed (Model: {candidate_model}): {e}")
             continue
 
@@ -299,7 +322,12 @@ def chat_stream(prompt: str, model: str = DEFAULT_MODEL, images: list = None):
         yield from stream_ollama_local(prompt, first_local, images=images)
         return
 
-    yield "\n[Error: AI models are currently unreachable. Please verify your Groq API key or start local Ollama (`ollama serve`).]"
+    if "401" in last_error_msg or "invalid_api_key" in last_error_msg.lower():
+        yield "\n[Error: Invalid Groq API Key on backend server. Please verify GROQ_API_KEY in your Render dashboard environment variables.]"
+    elif "429" in last_error_msg or "rate_limit" in last_error_msg.lower():
+        yield "\n[Error: Groq Cloud rate limit reached. Please wait a few moments and try again.]"
+    else:
+        yield f"\n[Error: AI models are currently unreachable. Please ensure GROQ_API_KEY is configured in your Render Web Service environment settings.]"
 
 
 
@@ -315,7 +343,8 @@ def chat(prompt: str, model: str = DEFAULT_MODEL):
             result += tok
         return result
 
-    if not client:
+    groq_client = get_groq_client()
+    if not groq_client:
         local_models = fetch_local_ollama_models()
         if local_models:
             first_local = local_models[0]["id"].replace("ollama:", "")
@@ -323,15 +352,23 @@ def chat(prompt: str, model: str = DEFAULT_MODEL):
             for tok in stream_ollama_local(prompt, first_local):
                 result += tok
             return result
-        return "[Error: GROQ_API_KEY not configured and no local Ollama models detected]"
+        return "[Error: GROQ_API_KEY not configured on backend server]"
 
-    fallback_candidates = [model, "llama-3.3-70b-versatile", "llama3-70b-8192", "mixtral-8x7b-32768", "gemma2-9b-it", "llama3-8b-8192", "llama-3.1-8b-instant"]
+    fallback_candidates = [
+        model,
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "mixtral-8x7b-32768",
+        "gemma2-9b-it",
+        "llama3-70b-8192",
+        "llama3-8b-8192"
+    ]
     seen = set()
     models_to_try = [x for x in fallback_candidates if not (x in seen or seen.add(x))]
 
     for candidate_model in models_to_try:
         try:
-            response = client.chat.completions.create(
+            response = groq_client.chat.completions.create(
                 model=candidate_model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
@@ -351,7 +388,7 @@ def chat(prompt: str, model: str = DEFAULT_MODEL):
             result += tok
         return result
 
-    return "[Error: AI models are currently unreachable. Please check your network or Groq API key.]"
+    return "[Error: AI models are currently unreachable. Please check your GROQ_API_KEY in Render dashboard environment settings.]"
 
 # Keep backward compatibility alias
 AVAILABLE_MODELS = DEFAULT_GROQ_MODELS

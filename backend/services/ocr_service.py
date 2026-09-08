@@ -57,13 +57,14 @@ def preprocess_image(image_bytes: bytes):
 
 def extract_ocr_via_vision_llm(file_path: str) -> str:
     """Fallback OCR using Groq Vision model for accurate text, tables, and document transcription."""
-    groq_key = os.environ.get("GROQ_API_KEY", "")
-    if not groq_key or not os.path.exists(file_path):
+    if not os.path.exists(file_path):
         return ""
 
     try:
-        from groq import Groq
-        client = Groq(api_key=groq_key)
+        from services.ollama_service import get_groq_client
+        client = get_groq_client()
+        if not client:
+            return ""
 
         with open(file_path, "rb") as f:
             b64 = base64.b64encode(f.read()).decode("utf-8")

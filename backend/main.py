@@ -96,6 +96,7 @@ app.add_middleware(
         "http://localhost:5173",
         "http://127.0.0.1:5173"
     ],
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -144,8 +145,17 @@ async def websocket_notifications(websocket: WebSocket):
 
 
 # =========================================================
-# TEST ROUTE
+# TEST & HEALTH ROUTES
 # =========================================================
+
+@app.get("/")
+@app.get("/health")
+def health_check():
+    return {
+        "status": "online",
+        "service": "RELEX AI Backend",
+        "version": "1.0.0"
+    }
 
 @app.post("/backend")
 def backend():
