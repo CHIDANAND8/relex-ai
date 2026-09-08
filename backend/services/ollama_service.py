@@ -28,7 +28,7 @@ OLLAMA_BASE_URL = "http://localhost:11434"
 # Embedding / utility-only models to exclude from chat selection
 EXCLUDED_OLLAMA_MODELS = {"nomic-embed-text", "nomic-embed-text:latest", "all-minilm", "mxbai-embed"}
 
-# Fallback static registry for Groq Cloud
+# Fallback static registry for Groq Cloud (updated with modern active models)
 DEFAULT_GROQ_MODELS = [
     {
         "id": "llama-3.3-70b-versatile",
@@ -49,42 +49,58 @@ DEFAULT_GROQ_MODELS = [
         "default": False
     },
     {
-        "id": "llama3-70b-8192",
-        "name": "Llama 3 70B",
-        "badge": "🔬 Versatile",
-        "description": "High-capacity reasoning and structured output",
+        "id": "deepseek-r1-distill-llama-70b",
+        "name": "DeepSeek R1 (70B)",
+        "badge": "🧠 Deep Reasoning",
+        "description": "Advanced open reasoning model hosted on Groq",
         "provider": "groq",
         "provider_label": "☁️ Groq Cloud",
         "default": False
     },
     {
-        "id": "llama3-8b-8192",
-        "name": "Llama 3 8B",
-        "badge": "⚡ Fast",
-        "description": "Fast and lightweight Meta model",
+        "id": "qwen-2.5-32b",
+        "name": "Qwen 2.5 32B",
+        "badge": "🚀 Balanced",
+        "description": "High capability and fast inference",
         "provider": "groq",
         "provider_label": "☁️ Groq Cloud",
         "default": False
     },
     {
-        "id": "mixtral-8x7b-32768",
-        "name": "Mixtral 8x7B",
-        "badge": "🔬 Deep Logic",
-        "description": "32k long-context window for complex technical analysis",
+        "id": "llama-3.3-70b-specdec",
+        "name": "Llama 3.3 70B SpecDec",
+        "badge": "⚡ Turbo",
+        "description": "Speculative decoding high-speed Llama 3.3 70B",
         "provider": "groq",
         "provider_label": "☁️ Groq Cloud",
         "default": False
     },
     {
-        "id": "gemma2-9b-it",
-        "name": "Gemma 2 9B",
-        "badge": "💎 Balanced",
-        "description": "Google's high-efficiency model balancing speed and quality",
+        "id": "llama-3.2-11b-vision-preview",
+        "name": "Llama 3.2 Vision",
+        "badge": "👁️ Vision",
+        "description": "Multimodal vision & document analysis model",
         "provider": "groq",
         "provider_label": "☁️ Groq Cloud",
         "default": False
     },
 ]
+
+def get_live_groq_model_ids():
+    """Fetch active chat model IDs directly from the connected Groq account."""
+    client = get_groq_client()
+    if not client:
+        return []
+    try:
+        models_data = client.models.list()
+        chat_ids = [
+            m.id for m in models_data.data 
+            if not any(ex in m.id.lower() for ex in ["whisper", "tts", "guard", "embed", "safetensors"])
+        ]
+        return chat_ids
+    except Exception as e:
+        print(f"Error listing Groq models: {e}")
+        return []
 
 def fetch_groq_models():
     """Dynamically query Groq API for available chat models, falling back to DEFAULT_GROQ_MODELS."""
@@ -93,13 +109,34 @@ def fetch_groq_models():
         return DEFAULT_GROQ_MODELS
     try:
         models_data = client.models.list()
-        chat_model_ids = {m.id for m in models_data.data if not m.id.startswith("whisper")}
+        live_chat_ids = [
+            m.id for m in models_data.data 
+            if not any(ex in m.id.lower() for ex in ["whisper", "tts", "guard", "embed", "safetensors"])
+        ]
         
-        # Filter and prioritize models from our metadata registry
-        active = [m for m in DEFAULT_GROQ_MODELS if m["id"] in chat_model_ids]
-        if active:
-            active[0]["default"] = True
-            return active
+        if not live_chat_ids:
+            return DEFAULT_GROQ_MODELS
+
+        active_models = []
+        for m_id in live_chat_ids:
+            matched = next((item for item in DEFAULT_GROQ_MODELS if item["id"] == m_id), None)
+            if matched:
+                active_models.append(dict(matched))
+            else:
+                friendly = m_id.replace("-", " ").replace("_", " ").title()
+                active_models.append({
+                    "id": m_id,
+                    "name": friendly,
+                    "badge": "☁️ Groq",
+                    "description": f"High performance AI model hosted on Groq ({m_id})",
+                    "provider": "groq",
+                    "provider_label": "☁️ Groq Cloud",
+                    "default": False
+                })
+        
+        if active_models:
+            active_models[0]["default"] = True
+            return active_models
         return DEFAULT_GROQ_MODELS
     except Exception as e:
         print(f"Error fetching Groq models list: {e}")
@@ -264,19 +301,23 @@ def chat_stream(prompt: str, model: str = DEFAULT_MODEL, images: list = None):
         yield "\n[Error: GROQ_API_KEY is not configured on the backend server. If using Render, please add GROQ_API_KEY under your Web Service -> Environment tab.]"
         return
 
-    # Build fallback candidates list starting with requested model
-    fallback_candidates = [
-        model,
+    # Fetch live valid models directly from Groq API
+    live_models = get_live_groq_model_ids()
+
+    # Build fallback candidates list starting with requested model, then all live Groq models
+    fallback_candidates = [model] + live_models + [
         "llama-3.3-70b-versatile",
+        "llama-3.3-70b-specdec",
         "llama-3.1-8b-instant",
-        "mixtral-8x7b-32768",
-        "gemma2-9b-it",
-        "llama3-70b-8192",
-        "llama3-8b-8192"
+        "deepseek-r1-distill-llama-70b",
+        "qwen-2.5-32b",
+        "llama-3.2-11b-vision-preview",
+        "llama-3.2-3b-preview",
+        "llama-3.2-1b-preview"
     ]
     # De-duplicate preserving order
     seen = set()
-    models_to_try = [x for x in fallback_candidates if not (x in seen or seen.add(x))]
+    models_to_try = [x for x in fallback_candidates if x and not (x in seen or seen.add(x))]
 
     last_error_msg = ""
     for candidate_model in models_to_try:
@@ -354,17 +395,19 @@ def chat(prompt: str, model: str = DEFAULT_MODEL):
             return result
         return "[Error: GROQ_API_KEY not configured on backend server]"
 
-    fallback_candidates = [
-        model,
+    live_models = get_live_groq_model_ids()
+    fallback_candidates = [model] + live_models + [
         "llama-3.3-70b-versatile",
+        "llama-3.3-70b-specdec",
         "llama-3.1-8b-instant",
-        "mixtral-8x7b-32768",
-        "gemma2-9b-it",
-        "llama3-70b-8192",
-        "llama3-8b-8192"
+        "deepseek-r1-distill-llama-70b",
+        "qwen-2.5-32b",
+        "llama-3.2-11b-vision-preview",
+        "llama-3.2-3b-preview",
+        "llama-3.2-1b-preview"
     ]
     seen = set()
-    models_to_try = [x for x in fallback_candidates if not (x in seen or seen.add(x))]
+    models_to_try = [x for x in fallback_candidates if x and not (x in seen or seen.add(x))]
 
     for candidate_model in models_to_try:
         try:

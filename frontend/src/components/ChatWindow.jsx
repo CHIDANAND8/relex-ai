@@ -193,7 +193,7 @@ export default function ChatWindow({
           setAvailableModels(res.models);
           setSelectedModel((prev) => {
             const exists = res.models.some((m) => m.id === prev);
-            if (!exists || prev === "llama-3.1-8b-instant") {
+            if (!exists) {
               const defaultM = res.models.find(m => m.default) || res.models[0];
               localStorage.setItem("selected_model", defaultM.id);
               return defaultM.id;

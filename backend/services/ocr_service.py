@@ -75,21 +75,26 @@ def extract_ocr_via_vision_llm(file_path: str) -> str:
             "Output ONLY the extracted transcription without conversational intro or commentary."
         )
 
-        response = client.chat.completions.create(
-            model="llama-3.2-11b-vision-preview",
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
-                ]
-            }],
-            temperature=0.1,
-            max_tokens=2048
-        )
+        for vis_model in ["llama-3.2-11b-vision-preview", "llama-3.2-90b-vision-preview"]:
+            try:
+                response = client.chat.completions.create(
+                    model=vis_model,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
+                        ]
+                    }],
+                    temperature=0.1,
+                    max_tokens=2048
+                )
 
-        if response.choices and response.choices[0].message.content:
-            return response.choices[0].message.content.strip()
+                if response.choices and response.choices[0].message.content:
+                    return response.choices[0].message.content.strip()
+            except Exception as model_err:
+                print(f"Vision model {vis_model} attempt failed: {model_err}")
+                continue
     except Exception as e:
         print(f"Vision OCR fallback error for {file_path}: {e}")
 
