@@ -22,7 +22,6 @@ export default function Sidebar({
   const navigate = useNavigate();
 
   const [convs, setConvs] = useState([]);
-  const [hoveredId, setHoveredId] = useState(null);
 
   const [feeds, setFeeds] = useState([]);
   const [unreadFeeds, setUnreadFeeds] = useState([]);
@@ -225,8 +224,6 @@ export default function Sidebar({
     return (
       <div
         key={c.id}
-        onMouseEnter={() => setHoveredId(c.id)}
-        onMouseLeave={() => setHoveredId(null)}
         onClick={() => {
           onSelect(c.id);
           navigate("/chat");

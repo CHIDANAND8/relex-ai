@@ -47,8 +47,7 @@ export default function Signup() {
     const hasMinLength = password.length >= 8 && password.length <= 64;
     const hasUpper = /[A-Z]/.test(password);
     const hasLower = /[a-z]/.test(password);
-    const hasNumber = /\d/.test(password);
-    const hasSpecial = /[@$!%*?&#^()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
+    const hasSpecial = /[^A-Za-z0-9]/.test(password);
 
     const score = [hasMinLength, hasUpper, hasLower, hasNumber, hasSpecial].filter(Boolean).length;
     
